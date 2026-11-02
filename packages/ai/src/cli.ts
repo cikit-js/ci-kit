@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { cac } from 'cac'
+import pkg from '../package.json'
 import { image, text } from './index'
 
 const cli = cac('ci-kit-ai')
@@ -66,5 +67,5 @@ cli
   })
 
 cli.help()
-cli.version('0.0.1')
+cli.version(pkg.version)
 cli.parse()

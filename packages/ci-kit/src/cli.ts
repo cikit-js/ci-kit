@@ -2,6 +2,7 @@
 
 import process from 'node:process'
 import { cac } from 'cac'
+import pkg from '../package.json'
 
 const cli = cac('ci-kit')
 
@@ -57,7 +58,7 @@ cli
   })
 
 cli.help()
-cli.version('0.0.1')
+cli.version(pkg.version)
 cli.parse()
 
 async function output(content: string, path?: string): Promise<void> {
