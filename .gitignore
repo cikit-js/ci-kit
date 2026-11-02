@@ -6,4 +6,5 @@ node_modules
 dist
 *.log
 .eslintcache
-coverage*.tgz
+coverage
+*.tgz
