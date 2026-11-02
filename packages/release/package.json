@@ -1,0 +1,33 @@
+{
+  "name": "@imba97/release",
+  "type": "module",
+  "version": "0.0.1",
+  "description": "Semver and release tag helpers",
+  "license": "MIT",
+  "homepage": "https://github.com/imba97/ci-kit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imba97/ci-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/imba97/ci-kit/issues"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "unbuild",
+    "typecheck": "tsc --noEmit",
+    "stub": "unbuild --stub"
+  },
+  "dependencies": {}
+}

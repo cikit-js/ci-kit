@@ -1,0 +1,46 @@
+{
+  "name": "ci-kit-monorepo",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@11.20.0",
+  "description": "Reusable building blocks for CI pipelines: AI calls, GitLab releases, changelogs, version tagging.",
+  "license": "MIT",
+  "homepage": "https://github.com/imba97/ci-kit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imba97/ci-kit.git"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "stub": "pnpm -r run stub",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "vitest run",
+    "tu": "vitest -u",
+    "lint": "eslint --cache",
+    "lint:fix": "eslint --cache --fix",
+    "release": "bumpp -r"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^9.5.1",
+    "@types/node": "^26.6.3",
+    "bumpp": "^12.3.0",
+    "defu": "^6.1.7",
+    "eslint": "^10.11.0",
+    "nano-staged": "^1.0.2",
+    "oxc-parser": "^0.90.0",
+    "simple-git-hooks": "^2.14.0",
+    "typescript": "6.0.3",
+    "unbuild": "^3.6.1",
+    "vitest": "^5.0.2"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm nano-staged"
+  },
+  "nano-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs,json,jsonc,json5,md}": "eslint --cache --fix"
+  }
+}

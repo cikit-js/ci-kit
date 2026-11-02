@@ -1,0 +1,44 @@
+{
+  "name": "@imba97/ci-kit",
+  "type": "module",
+  "version": "0.0.1",
+  "description": "Meta package that re-exports every ci-kit module",
+  "license": "MIT",
+  "homepage": "https://github.com/imba97/ci-kit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imba97/ci-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/imba97/ci-kit/issues"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "bin": {
+    "ci-kit": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "unbuild",
+    "typecheck": "tsc --noEmit",
+    "stub": "unbuild --stub"
+  },
+  "dependencies": {
+    "@imba97/ai": "workspace:*",
+    "@imba97/changelog": "workspace:*",
+    "@imba97/env": "workspace:*",
+    "@imba97/gitlab": "workspace:*",
+    "@imba97/http": "workspace:*",
+    "@imba97/release": "workspace:*",
+    "cac": "^7.1.0"
+  }
+}
