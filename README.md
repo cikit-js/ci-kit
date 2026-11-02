@@ -8,7 +8,8 @@ Use the meta package, or install only the part you need.
 ```bash
 npx @imba97/ci-kit changelog --from v1.0.4 --to v1.0.5 --out notes.md
 npx @imba97/ci-kit-ai text --prompt-file prompts/review.md --out review.txt
-npx @imba97/ci-kit-ai image --prompt "flat illustration, no text" --size 1280x720 --out image.png
+npx @imba97/ci-kit-ai text --prompt-file prompts/write.md --json --max-tokens 16000 --retries 0 --out article.json
+npx @imba97/ci-kit-ai image --prompt "flat illustration, no text" --size 2560x1440 --out image.png
 npx @imba97/ci-kit-changelog --from v1.0.4 --out notes.md
 ```
 
@@ -46,10 +47,51 @@ src/providers/
 | `AI_IMAGE_PROVIDER` | `seedream` | registry key in `image/` |
 | `AI_API_KEY` | — | key used by text providers |
 | `AI_IMAGE_API_KEY` | — | key used by image providers |
+| `AI_TEXT_MODEL` | provider default | overrides the model without editing the package |
+| `AI_IMAGE_MODEL` | provider default | overrides the image model |
+| `AI_IMAGE_SIZE` | provider default | default image size when a call omits `size` |
 
 Adding a provider is one file plus one line in the matching `index.ts`; the CLI and the
 calling project do not change. Public sizes are always `WxH`, and each provider declares
 its own `sizeSeparator` when the vendor wants something else.
+
+### Library usage
+
+```ts
+import { image, text } from '@imba97/ci-kit-ai'
+
+const reply = await text({
+  prompt: 'Summarise this diff',
+  system: 'You are a release manager.',
+  maxTokens: 1024,
+  retries: 0 // paid call: never resend after an unknown outcome
+})
+
+const picture = await image({ prompt: 'flat illustration, no text', size: '2560x1440' })
+```
+
+`text()` forwards `maxTokens`, `temperature` and `json` (as `response_format`) when set,
+reports `usage` and `finishReason`, and fails when the provider ends with a reason other
+than `stop` — a truncated string is not a successful answer. `json: true` throws on a
+provider that cannot honour it instead of silently ignoring the request.
+
+`image()` requires exactly one image in the response, surfaces item level errors by code
+only, and rejects payloads that are neither PNG nor JPEG.
+
+### Errors
+
+Failures are `AiError` with a stable `kind` (`auth`, `quota`, `request`, `network`,
+`server`, `output`, `config`), plus `provider`, `model`, `status` and `retryable`.
+Branch on `kind`, never on the message. Messages never contain the key, the request
+body or the provider payload; `error.describe()` gives one log-safe line.
+
+### Retries and paid calls
+
+The transport retries `408`, `429`, `5xx` and network errors twice by default. Pass
+`retries: 0` for paid or non-idempotent generation: the provider may already have
+completed the request, and a retry charges again. Timeouts are reported as
+non-retryable for the same reason.
+
 
 ## Design rules
 
