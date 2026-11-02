@@ -1,7 +1,7 @@
 {
   "name": "@imba97/ci-kit",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Meta package that re-exports every ci-kit module",
   "license": "MIT",
   "homepage": "https://github.com/imba97/ci-kit#readme",

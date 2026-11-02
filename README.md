@@ -71,17 +71,33 @@ pnpm release     # bumpp -r
 ```
 ## Release
 
-Publishing runs on GitHub Actions with npm trusted publishing (OIDC) — no long-lived
-`NPM_TOKEN` anywhere. The workflow needs `id-token: write`, nothing else.
+Versioning is `bumpp -r`: it bumps every package, commits, tags, and pushes.
 
 ```bash
-pnpm release     # bump versions across packages, then push the tag
-git push --follow-tags
+pnpm release        # choose patch/minor/major, all packages move together
 ```
 
-The tag triggers `.github/workflows/release.yaml`, which builds, typechecks, tests, then
-publishes every package whose `name@version` is not on the registry yet.
+Pushing the tag triggers `.github/workflows/release.yaml`, which installs, typechecks,
+tests, builds, then runs:
 
-One-time setup on npmjs.com: for each package, add this repository and workflow as a
-trusted publisher (Organization/user `imba97`, repository `ci-kit`, workflow `release.yaml`).
-Without that entry npm has no way to trust the OIDC claim.
+```bash
+pnpm -r publish --access public --no-git-checks
+```
+
+**Publishing must go through pnpm, not npm.** npm does not understand the workspace
+protocol: it writes `"@imba97/ci-kit-ai": "workspace:*"` straight into the tarball, and
+installing the published package then fails to resolve any internal dependency.
+`pnpm publish` rewrites `workspace:*` to the real version at pack time:
+
+```bash
+pnpm pack                       # then look at package/package.json inside the tarball
+# "@imba97/ci-kit-ai": "0.1.1"  ← real version, not workspace:*
+```
+
+Authentication uses npm Trusted Publisher (OIDC), so no `NPM_TOKEN` exists anywhere:
+`permissions: id-token: write` in the job is the only requirement, and pnpm exchanges
+it for a short-lived credential. Node ships its own npm; the publish path does not
+depend on the npm version.
+
+One-time setup on npmjs.com: for each package add this repository and workflow as a
+trusted publisher (user `imba97`, repository `ci-kit`, workflow filename `release.yaml`).

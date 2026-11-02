@@ -1,7 +1,7 @@
 {
   "name": "@imba97/ci-kit-changelog",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turn git commits into grouped release notes",
   "license": "MIT",
   "homepage": "https://github.com/imba97/ci-kit#readme",
