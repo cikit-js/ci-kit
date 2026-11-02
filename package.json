@@ -11,6 +11,9 @@
     "type": "git",
     "url": "git+https://github.com/imba97/ci-kit.git"
   },
+  "bugs": {
+    "url": "https://github.com/imba97/ci-kit/issues"
+  },
   "engines": {
     "node": ">=20.19.0"
   },
