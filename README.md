@@ -79,9 +79,9 @@ pnpm release     # bump versions across packages, then push the tag
 git push --follow-tags
 ```
 
-The tag triggers `.github/workflows/release.yml`, which builds, typechecks, tests, then
+The tag triggers `.github/workflows/release.yaml`, which builds, typechecks, tests, then
 publishes every package whose `name@version` is not on the registry yet.
 
 One-time setup on npmjs.com: for each package, add this repository and workflow as a
-trusted publisher (Organization/user `imba97`, repository `ci-kit`, workflow `release.yml`).
+trusted publisher (Organization/user `imba97`, repository `ci-kit`, workflow `release.yaml`).
 Without that entry npm has no way to trust the OIDC claim.
