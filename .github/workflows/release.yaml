@@ -18,14 +18,14 @@ jobs:
       # OIDC 可信发布必需：npm 用这个令牌换取短期凭证，不需要任何长期 token
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 版本只在 package.json#packageManager 里钉一次。
       # 这里再写 with.version 会构成双源，报
       # "Multiple versions of pnpm specified"。
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # 可信发布要求 npm >= 11.5.1，Node 22 起自带
           node-version: 22
