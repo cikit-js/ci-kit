@@ -22,7 +22,7 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
-    "ci-kit-changelog": "./dist/cli.mjs"
+    "ci-kit-changelog": "dist/cli.mjs"
   },
   "files": [
     "dist"

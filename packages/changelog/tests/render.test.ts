@@ -32,11 +32,15 @@ describe('renderChangelog', () => {
   })
 
   it('marks breaking changes', () => {
-    expect(renderChangelog([commit('refactor(auth)!: unify session')])).toContain('（不兼容）')
+    expect(renderChangelog([
+      commit('refactor(auth)!: unify session')
+    ])).toContain('（不兼容）')
   })
 
   it('falls back to a notice when nothing is kept', () => {
-    expect(renderChangelog([commit('ci: internal only')])).toContain('本次版本主要为内部维护')
+    expect(renderChangelog([
+      commit('ci: internal only')
+    ])).toContain('本次版本主要为内部维护')
   })
 
   it('truncates long sections', () => {

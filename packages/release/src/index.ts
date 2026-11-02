@@ -16,7 +16,12 @@ export function parseTag(tag: string): ParsedTag | null {
   }
   const [, version, beta] = match
   return beta
-    ? { raw: tag, channel: 'beta', version: version!, beta: Number(beta) }
+    ? {
+        raw: tag,
+        channel: 'beta',
+        version: version!,
+        beta: Number(beta)
+      }
     : { raw: tag, channel: 'production', version: version! }
 }
 
@@ -33,7 +38,9 @@ export function nextBetaTag(existingTags: string[], version: string): string {
     .map(parseTag)
     .filter((tag): tag is ParsedTag => tag !== null && tag.channel === 'beta' && tag.version === version)
     .map(tag => tag.beta ?? 0)
-  const next = used.length === 0 ? 1 : Math.max(...used) + 1
+  const next = used.length === 0
+    ? 1
+    : Math.max(...used) + 1
   return formatBetaTag(version, next)
 }
 

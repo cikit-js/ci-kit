@@ -34,14 +34,28 @@ export const DEFAULT_KEEP = [
   { type: 'refactor', title: '重构' }
 ]
 
-export const DEFAULT_DROP = ['ci', 'docs', 'chore', 'test', 'build', 'style']
+export const DEFAULT_DROP = [
+  'ci',
+  'docs',
+  'chore',
+  'test',
+  'build',
+  'style'
+]
 
 export function collectCommits(options: ChangelogOptions = {}): Commit[] {
   const { cwd = process.cwd(), from, to } = options
-  const range = from ? `${from}..${to ?? 'HEAD'}` : (to ?? 'HEAD')
+  const range = from
+    ? `${from}..${to ?? 'HEAD'}`
+    : (to ?? 'HEAD')
   const output = execFileSync(
     'git',
-    ['log', range, '--no-merges', '--pretty=format:%H%x1f%s%x1f%b%x1e'],
+    [
+      'log',
+      range,
+      '--no-merges',
+      '--pretty=format:%H%x1f%s%x1f%b%x1e'
+    ],
     { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }
   )
   return output
@@ -50,7 +64,11 @@ export function collectCommits(options: ChangelogOptions = {}): Commit[] {
     .filter(Boolean)
     .map((chunk) => {
       const [hash = '', subject = '', body = ''] = chunk.split('\x1F')
-      return { hash, subject: subject.trim(), body: body.trim() }
+      return {
+        hash,
+        subject: subject.trim(),
+        body: body.trim()
+      }
     })
 }
 
@@ -100,7 +118,9 @@ export function renderChangelog(commits: Commit[], options: ChangelogOptions = {
       continue
     }
     const items = sections.get(parsed.type) ?? []
-    items.push(parsed.breaking ? `${parsed.description}（不兼容）` : parsed.description)
+    items.push(parsed.breaking
+      ? `${parsed.description}（不兼容）`
+      : parsed.description)
     sections.set(parsed.type, items)
   }
 
@@ -133,5 +153,7 @@ export function isBetaTag(tag: string): boolean {
 }
 
 export function previousTagMatcher(channel: 'beta' | 'production'): string {
-  return channel === 'beta' ? 'v*-beta.*' : 'v[0-9]*'
+  return channel === 'beta'
+    ? 'v*-beta.*'
+    : 'v[0-9]*'
 }

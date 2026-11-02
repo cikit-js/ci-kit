@@ -17,7 +17,10 @@ export function parseEnv(content: string): EnvEntry[] {
       continue
     }
     const [, key, raw = ''] = match
-    entries.push({ key: key!, value: unquote(raw.trim()) })
+    entries.push({
+      key: key!,
+      value: unquote(raw.trim())
+    })
   }
   return entries
 }
@@ -66,6 +69,8 @@ export function maskValue(value: string): string {
 export function redact(entries: EnvEntry[], keys: string[] = ['KEY', 'TOKEN', 'SECRET', 'PASSWORD']): EnvEntry[] {
   return entries.map(({ key, value }) => ({
     key,
-    value: keys.some(fragment => key.toUpperCase().includes(fragment)) ? maskValue(value) : value
+    value: keys.some(fragment => key.toUpperCase().includes(fragment))
+      ? maskValue(value)
+      : value
   }))
 }

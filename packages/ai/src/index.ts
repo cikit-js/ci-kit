@@ -51,7 +51,11 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
   const provider = resolveTextProvider(env)
   const key = apiKeyOf(env, provider.apiKeyEnv)
   const messages = [
-    ...(options.system ? [{ role: 'system', content: options.system }] : []),
+    ...(options.system
+      ? [
+          { role: 'system', content: options.system }
+        ]
+      : []),
     { role: 'user', content: options.prompt }
   ]
   const data = await requestJson<ChatResponse>(`${trimSlash(provider.baseUrl)}/chat/completions`, {
@@ -74,8 +78,18 @@ export async function image(options: ImageOptions): Promise<AiResult<Uint8Array>
   const size = normalizeSize(options.size ?? provider.defaultSize ?? '1280x720', provider)
 
   const body = provider.protocol === 'seedream'
-    ? { model: provider.model, prompt: options.prompt, size, response_format: 'b64_json' }
-    : { model: provider.model, prompt: options.prompt, size, n: 1 }
+    ? {
+        model: provider.model,
+        prompt: options.prompt,
+        size,
+        response_format: 'b64_json'
+      }
+    : {
+        model: provider.model,
+        prompt: options.prompt,
+        size,
+        n: 1
+      }
 
   const data = await requestJson<ImageResponse>(`${trimSlash(provider.baseUrl)}/images/generations`, {
     method: 'POST',

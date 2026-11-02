@@ -46,7 +46,10 @@ export async function request(
   let lastError: unknown
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs)
+      })
       if (!response.ok) {
         const body = await response.text().catch(() => '')
         throw new HttpError(url, response.status, body.slice(0, 500))

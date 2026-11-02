@@ -49,7 +49,9 @@ cli
   .action(async (options: Record<string, string | undefined>) => {
     const { readFileSync } = await import('node:fs')
     const { text } = await import('@imba97/ci-kit-ai')
-    const prompt = options.promptFile ? readFileSync(options.promptFile, 'utf8') : options.prompt
+    const prompt = options.promptFile
+      ? readFileSync(options.promptFile, 'utf8')
+      : options.prompt
     if (!prompt) {
       throw new Error('Provide --prompt or --prompt-file')
     }

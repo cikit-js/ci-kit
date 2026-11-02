@@ -37,7 +37,9 @@ cli
     const result = await text({
       prompt: readPrompt(options.prompt, options.promptFile, vars),
       system: options.system,
-      timeoutMs: options.timeout ? Number(options.timeout) : undefined
+      timeoutMs: options.timeout
+        ? Number(options.timeout)
+        : undefined
     })
     if (options.out) {
       writeFileSync(options.out, `${result.value}\n`, 'utf8')
@@ -59,7 +61,9 @@ cli
     const result = await image({
       prompt: readPrompt(options.prompt, options.promptFile),
       size: options.size,
-      timeoutMs: options.timeout ? Number(options.timeout) : undefined
+      timeoutMs: options.timeout
+        ? Number(options.timeout)
+        : undefined
     })
     const out = options.out ?? 'impression.png'
     writeFileSync(out, result.value)

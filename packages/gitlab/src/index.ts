@@ -107,7 +107,9 @@ export class GitlabClient {
       ref: input.ref,
       name: input.name,
       description: input.description,
-      assets: input.assets ? { links: input.assets } : undefined
+      assets: input.assets
+        ? { links: input.assets }
+        : undefined
     })
   }
 
@@ -122,7 +124,9 @@ export class GitlabClient {
   }
 
   async listPackages(packageName?: string): Promise<Array<{ id: number, name: string, version: string }>> {
-    const query: Record<string, string> = packageName ? { package_name: packageName } : {}
+    const query: Record<string, string> = packageName
+      ? { package_name: packageName }
+      : {}
     return this.paginate<{ id: number, name: string, version: string }>('packages', query)
   }
 

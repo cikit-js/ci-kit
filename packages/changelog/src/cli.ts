@@ -15,7 +15,9 @@ cli
   .option('--max <n>', 'Max items per section', { default: 10 })
   .action((out: string | undefined, options: { from?: string, to?: string, max?: number }) => {
     const commits = collectCommits({ from: options.from, to: options.to })
-    const markdown = renderChangelog(commits, { maxPerSection: Number(options.max ?? 10) })
+    const markdown = renderChangelog(commits, {
+      maxPerSection: Number(options.max ?? 10)
+    })
     if (out) {
       writeFileSync(out, `${markdown}\n`, 'utf8')
       process.stdout.write(`Wrote ${out} (${commits.length} commits scanned)\n`)
