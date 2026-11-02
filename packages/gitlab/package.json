@@ -31,5 +31,8 @@
   },
   "dependencies": {
     "@imba97/ci-kit-http": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

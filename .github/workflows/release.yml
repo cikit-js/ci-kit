@@ -1,0 +1,58 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # OIDC 可信发布必需：npm 用这个令牌换取短期凭证，不需要任何长期 token
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          # 可信发布要求 npm >= 11.5.1，Node 22 起自带
+          node-version: 22
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: build
+        run: pnpm -r run build
+
+      - name: typecheck
+        run: pnpm -r run typecheck
+
+      - name: test
+        run: pnpm test
+
+      - name: publish packages
+        # 不给 NODE_AUTH_TOKEN：让 npm CLI 走 OIDC 换取的短期凭证
+        run: |
+          set -euo pipefail
+          for dir in packages/*/; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "skip $name@$version (already published)"
+              continue
+            fi
+            echo "publish $name@$version"
+            (cd "$dir" && npm publish --provenance)
+          done

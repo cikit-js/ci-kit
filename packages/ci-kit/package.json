@@ -40,5 +40,8 @@
     "@imba97/ci-kit-http": "workspace:*",
     "@imba97/ci-kit-release": "workspace:*",
     "cac": "^7.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

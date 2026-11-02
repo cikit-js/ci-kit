@@ -35,5 +35,8 @@
   "dependencies": {
     "@imba97/ci-kit-http": "workspace:*",
     "cac": "^7.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -42,3 +42,19 @@ pnpm lint
 pnpm build
 pnpm release     # bumpp -r
 ```
+## Release
+
+Publishing runs on GitHub Actions with npm trusted publishing (OIDC) — no long-lived
+`NPM_TOKEN` anywhere. The workflow needs `id-token: write`, nothing else.
+
+```bash
+pnpm release     # bump versions across packages, then push the tag
+git push --follow-tags
+```
+
+The tag triggers `.github/workflows/release.yml`, which builds, typechecks, tests, then
+publishes every package whose `name@version` is not on the registry yet.
+
+One-time setup on npmjs.com: for each package, add this repository and workflow as a
+trusted publisher (Organization/user `imba97`, repository `ci-kit`, workflow `release.yml`).
+Without that entry npm has no way to trust the OIDC claim.
