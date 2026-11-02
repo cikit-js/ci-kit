@@ -1,7 +1,7 @@
 {
   "name": "@imba97/ci-kit-env",
   "type": "module",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Read .env files and export them safely",
   "license": "MIT",
   "homepage": "https://github.com/imba97/ci-kit#readme",
