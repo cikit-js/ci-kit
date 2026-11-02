@@ -1,7 +1,7 @@
 {
   "name": "@imba97/ci-kit-http",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Tiny fetch wrapper with timeout, retry and typed errors",
   "license": "MIT",
   "homepage": "https://github.com/imba97/ci-kit#readme",
