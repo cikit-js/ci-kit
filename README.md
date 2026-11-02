@@ -24,6 +24,33 @@ npx @imba97/ci-kit-changelog --from v1.0.4 --out notes.md
 | `@imba97/ci-kit-release` | Semver bump, beta/production tag naming, build numbers |
 | `@imba97/ci-kit-http` | fetch with timeout, retry and typed errors |
 
+## AI providers
+
+Text and image are separate registries, because vendors and models rarely match:
+
+```
+src/providers/
+├── index.ts          # resolveTextProvider / resolveImageProvider
+├── types.ts
+├── text/
+│   ├── dashscope.ts  # DashScope compatible mode, ZHIPU/GLM-5.3-Flash
+│   └── openai.ts     # any OpenAI compatible endpoint + factory
+└── image/
+    ├── seedream.ts   # Volcengine Ark Seedream
+    └── dashscope.ts  # DashScope image, 1280*720 style sizes
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AI_TEXT_PROVIDER` | `dashscope` | registry key in `text/` |
+| `AI_IMAGE_PROVIDER` | `seedream` | registry key in `image/` |
+| `AI_API_KEY` | — | key used by text providers |
+| `AI_IMAGE_API_KEY` | — | key used by image providers |
+
+Adding a provider is one file plus one line in the matching `index.ts`; the CLI and the
+calling project do not change. Public sizes are always `WxH`, and each provider declares
+its own `sizeSeparator` when the vendor wants something else.
+
 ## Design rules
 
 - Modules do not depend on each other except through `@imba97/ci-kit-http`.

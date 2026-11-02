@@ -40,7 +40,7 @@ cli
     })
     if (options.out) {
       writeFileSync(options.out, `${result.value}\n`, 'utf8')
-      process.stdout.write(`Wrote ${options.out} via ${result.model}\n`)
+      process.stdout.write(`Wrote ${options.out} via ${result.provider} (${result.model})\n`)
     }
     else {
       process.stdout.write(`${result.value}\n`)
@@ -62,7 +62,7 @@ cli
     })
     const out = options.out ?? 'impression.png'
     writeFileSync(out, result.value)
-    process.stdout.write(`Wrote ${out} (${result.value.length} bytes) via ${result.model}\n`)
+    process.stdout.write(`Wrote ${out} (${result.value.length} bytes) via ${result.provider} (${result.model})\n`)
   })
 
 cli.help()
