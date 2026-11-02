@@ -33,12 +33,12 @@
     "stub": "unbuild --stub"
   },
   "dependencies": {
-    "@imba97/ai": "workspace:*",
-    "@imba97/changelog": "workspace:*",
-    "@imba97/env": "workspace:*",
-    "@imba97/gitlab": "workspace:*",
-    "@imba97/http": "workspace:*",
-    "@imba97/release": "workspace:*",
+    "@imba97/ci-kit-ai": "workspace:*",
+    "@imba97/ci-kit-changelog": "workspace:*",
+    "@imba97/ci-kit-env": "workspace:*",
+    "@imba97/ci-kit-gitlab": "workspace:*",
+    "@imba97/ci-kit-http": "workspace:*",
+    "@imba97/ci-kit-release": "workspace:*",
     "cac": "^7.1.0"
   }
 }

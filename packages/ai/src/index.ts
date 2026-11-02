@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import process from 'node:process'
-import { request, requestJson } from '@imba97/http'
+import { request, requestJson } from '@imba97/ci-kit-http'
 import { resolvePreset } from './providers'
 
 export * from './providers'

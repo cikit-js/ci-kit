@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/env",
+  "name": "@imba97/ci-kit-env",
   "type": "module",
   "version": "0.0.1",
   "description": "Read .env files and export them safely",

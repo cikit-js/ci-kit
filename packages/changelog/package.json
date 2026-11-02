@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/changelog",
+  "name": "@imba97/ci-kit-changelog",
   "type": "module",
   "version": "0.0.1",
   "description": "Turn git commits into grouped release notes",
@@ -22,7 +22,7 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
-    "changelog": "./dist/cli.mjs"
+    "ci-kit-changelog": "./dist/cli.mjs"
   },
   "files": [
     "dist"

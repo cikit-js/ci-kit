@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/ai",
+  "name": "@imba97/ci-kit-ai",
   "type": "module",
   "version": "0.0.1",
   "description": "Multi-provider AI client for text and image generation",
@@ -22,7 +22,7 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
-    "ai": "./dist/cli.mjs"
+    "ci-kit-ai": "./dist/cli.mjs"
   },
   "files": [
     "dist"
@@ -33,7 +33,7 @@
     "stub": "unbuild --stub"
   },
   "dependencies": {
-    "@imba97/http": "workspace:*",
+    "@imba97/ci-kit-http": "workspace:*",
     "cac": "^7.1.0"
   }
 }

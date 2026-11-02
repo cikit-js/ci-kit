@@ -4,7 +4,7 @@ import process from 'node:process'
 import { cac } from 'cac'
 import { image, text } from './index'
 
-const cli = cac('ai')
+const cli = cac('ci-kit-ai')
 
 function readPrompt(prompt?: string, promptFile?: string, vars: Record<string, string> = {}): string {
   let content = prompt ?? ''

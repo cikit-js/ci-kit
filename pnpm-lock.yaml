@@ -44,7 +44,7 @@ importers:
 
   packages/ai:
     dependencies:
-      '@imba97/http':
+      '@imba97/ci-kit-http':
         specifier: workspace:*
         version: link:../http
       cac:
@@ -59,22 +59,22 @@ importers:
 
   packages/ci-kit:
     dependencies:
-      '@imba97/ai':
+      '@imba97/ci-kit-ai':
         specifier: workspace:*
         version: link:../ai
-      '@imba97/changelog':
+      '@imba97/ci-kit-changelog':
         specifier: workspace:*
         version: link:../changelog
-      '@imba97/env':
+      '@imba97/ci-kit-env':
         specifier: workspace:*
         version: link:../env
-      '@imba97/gitlab':
+      '@imba97/ci-kit-gitlab':
         specifier: workspace:*
         version: link:../gitlab
-      '@imba97/http':
+      '@imba97/ci-kit-http':
         specifier: workspace:*
         version: link:../http
-      '@imba97/release':
+      '@imba97/ci-kit-release':
         specifier: workspace:*
         version: link:../release
       cac:
@@ -85,7 +85,7 @@ importers:
 
   packages/gitlab:
     dependencies:
-      '@imba97/http':
+      '@imba97/ci-kit-http':
         specifier: workspace:*
         version: link:../http
 

@@ -5,7 +5,7 @@ import process from 'node:process'
 import { cac } from 'cac'
 import { collectCommits, renderChangelog } from './index'
 
-const cli = cac('changelog')
+const cli = cac('ci-kit-changelog')
 
 cli
   .command('[out]', 'Generate grouped release notes from git history')
