@@ -1,0 +1,43 @@
+{
+  "name": "@ci-kit/roundtable",
+  "type": "module",
+  "version": "0.2.1",
+  "description": "Seat-based orchestration that lets multiple AI roles discuss, produce and converge without a human-supplied agenda",
+  "license": "MIT",
+  "homepage": "https://github.com/imba97/ci-kit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imba97/ci-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/imba97/ci-kit/issues"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "bin": {
+    "ci-kit-roundtable": "dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "unbuild",
+    "typecheck": "tsc --noEmit",
+    "stub": "unbuild --stub"
+  },
+  "dependencies": {
+    "@ci-kit/ai": "workspace:*",
+    "@ci-kit/http": "workspace:*",
+    "cac": "^7.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
