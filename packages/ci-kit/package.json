@@ -3,6 +3,7 @@
   "type": "module",
   "version": "0.2.1",
   "description": "Meta package that re-exports every ci-kit module",
+  "author": "imba97",
   "license": "MIT",
   "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {

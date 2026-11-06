@@ -3,6 +3,7 @@
   "type": "module",
   "version": "0.2.1",
   "description": "Minimal GitLab API client for releases, packages and schedules",
+  "author": "imba97",
   "license": "MIT",
   "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {

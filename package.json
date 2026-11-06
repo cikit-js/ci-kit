@@ -5,6 +5,7 @@
   "private": true,
   "packageManager": "pnpm@12.16.1",
   "description": "Reusable building blocks for CI pipelines: AI calls, GitLab releases, changelogs, version tagging.",
+  "author": "imba97",
   "license": "MIT",
   "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {

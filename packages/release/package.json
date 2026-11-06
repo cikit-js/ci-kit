@@ -3,6 +3,7 @@
   "type": "module",
   "version": "0.2.1",
   "description": "Semver and release tag helpers",
+  "author": "imba97",
   "license": "MIT",
   "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {

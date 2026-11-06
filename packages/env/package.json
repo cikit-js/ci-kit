@@ -3,6 +3,7 @@
   "type": "module",
   "version": "0.2.1",
   "description": "Read .env files and export them safely",
+  "author": "imba97",
   "license": "MIT",
   "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {
