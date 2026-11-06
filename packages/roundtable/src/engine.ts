@@ -42,6 +42,16 @@ export interface EngineEvents {
 /** The AI call the engine depends on; injectable so meetings can be tested offline. */
 export type TextCaller = typeof aiText
 
+/**
+ * Above this length a statement's body is written to `artifacts/` instead of
+ * being inlined in `record.json`.
+ *
+ * The record stays a compact index of what happened; a long draft belongs in
+ * its own file that a later step can read, diff or publish without parsing a
+ * megabyte of JSON.
+ */
+export const ARTIFACT_THRESHOLD = 8_000
+
 export interface EngineOptions {
   loaded: LoadedRoundtable
   /** Initial material, already normalized to a list. */
@@ -57,6 +67,14 @@ export interface EngineOptions {
   persist?: () => Promise<void>
   /** Defaults to `@ci-kit/ai`'s text(); tests pass a stub. */
   callText?: TextCaller
+  /**
+   * Write oversized statement bodies under `artifacts/`. Receives the relative
+   * path and content, returns the byte count for the recorded reference.
+   * Without this, long bodies stay inline in the record.
+   */
+  writeArtifact?: (relativePath: string, content: string) => Promise<number>
+  /** Attempt number, used to keep artifact names unique across attempts. */
+  attempt?: number
 }
 
 export interface AttemptResult {
@@ -273,6 +291,19 @@ async function runPhase(
       model: call.model,
       usage: call.usage
     }
+
+    // A long body belongs in its own file: the record stays a compact index,
+    // and the artifact is named per attempt so a retry never overwrites the
+    // previous one — old output is evidence for review.
+    if (options.writeArtifact && call.content.length > ARTIFACT_THRESHOLD) {
+      const attempt = options.attempt ?? 1
+      const relative = `artifacts/attempt-${attempt}-${seat.id}-${phase.id}.md`
+      const bytes = await options.writeArtifact(relative, call.content)
+      statement.artifacts = [
+        { path: relative, bytes }
+      ]
+    }
+
     statements.push(statement)
     events?.onStatement?.(statement)
 

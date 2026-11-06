@@ -150,6 +150,12 @@ export async function runRoundtable(options: RoundtableOptions): Promise<Roundta
   const recordPath = join(runDir, 'record.json')
   const minutesPath = join(runDir, 'record.md')
   const persist = () => writeJson(statePath, state)
+  // Oversized statement bodies land beside the record, not inside it.
+  const writeArtifact = async (relativePath: string, content: string): Promise<number> => {
+    const target = join(runDir, relativePath)
+    await writeText(target, content)
+    return new TextEncoder().encode(content).byteLength
+  }
 
   let revisionNotes: string[] = []
 
@@ -169,6 +175,8 @@ export async function runRoundtable(options: RoundtableOptions): Promise<Roundta
       revisionNotes,
       persist,
       callText: options.callText,
+      writeArtifact,
+      attempt,
       events: {
         onStatement: (statement) => {
           const seat = loaded.byId.get(statement.seat)
@@ -301,6 +309,10 @@ export async function resumeRoundtable(options: ResumeOptions): Promise<Roundtab
     : toContextList(options.context)
   const instructions = phaseInstructions(loaded, await readTableBody(options.configDir))
   const persist = () => writeJson(join(runDir, 'state.json'), state)
+  const writeArtifact = async (relativePath: string, content: string): Promise<number> => {
+    await writeText(join(runDir, relativePath), content)
+    return new TextEncoder().encode(content).byteLength
+  }
 
   // Start from the attempt that was interrupted; completed phases inside it are
   // re-read from state so a resume never repeats finished work.
@@ -339,6 +351,8 @@ export async function resumeRoundtable(options: ResumeOptions): Promise<Roundtab
       revisionNotes,
       persist,
       callText: options.callText,
+      writeArtifact,
+      attempt,
       // Finished phases stay available as input for the resumed ones.
       completedPhases: donePhases.filter(phase => phase.status === 'completed'),
       events: {
