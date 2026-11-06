@@ -3,28 +3,28 @@
 Reusable building blocks for CI pipelines: AI calls, GitLab releases and packages,
 changelog generation, release tagging and a small fetch wrapper.
 
-Use the meta package (`@cikit-js/core`), or install only the part you need.
+Use the meta package (`@ci-kit/core`), or install only the part you need.
 
 ```bash
-npx @cikit-js/core changelog --from v1.0.4 --to v1.0.5 --out notes.md
-npx @cikit-js/ai text --prompt-file prompts/review.md --out review.txt
-npx @cikit-js/ai text --prompt-file prompts/write.md --json --max-tokens 16000 --retries 0 --out article.json
-npx @cikit-js/ai image --prompt "flat illustration, no text" --size 2560x1440 --out image.png
-npx @cikit-js/changelog --from v1.0.4 --out notes.md
+npx @ci-kit/core changelog --from v1.0.4 --to v1.0.5 --out notes.md
+npx @ci-kit/ai text --prompt-file prompts/review.md --out review.txt
+npx @ci-kit/ai text --prompt-file prompts/write.md --json --max-tokens 16000 --retries 0 --out article.json
+npx @ci-kit/ai image --prompt "flat illustration, no text" --size 2560x1440 --out image.png
+npx @ci-kit/changelog --from v1.0.4 --out notes.md
 ```
 
 ## Packages
 
 | Package | What it does |
 | --- | --- |
-| `@cikit-js/core` | Meta package, re-exports everything and ships the `ci-kit` CLI |
-| `@cikit-js/ai` | Text and image generation, multi-provider presets, `ci-kit-ai` CLI |
-| `@cikit-js/changelog` | Git history to grouped release notes, `ci-kit-changelog` CLI |
-| `@cikit-js/gitlab` | Releases, generic packages, pipeline schedules, pagination |
-| `@cikit-js/env` | Read `.env`, export without breaking JSON values, redact |
-| `@cikit-js/release` | Semver bump, beta/production tag naming, build numbers |
-| `@cikit-js/http` | fetch with timeout, retry and typed errors |
-| `@cikit-js/roundtable` | Seat-based orchestration: multiple AI roles discuss, produce and converge without a human-supplied agenda |
+| `@ci-kit/core` | Meta package, re-exports everything and ships the `ci-kit` CLI |
+| `@ci-kit/ai` | Text and image generation, multi-provider presets, `ci-kit-ai` CLI |
+| `@ci-kit/changelog` | Git history to grouped release notes, `ci-kit-changelog` CLI |
+| `@ci-kit/gitlab` | Releases, generic packages, pipeline schedules, pagination |
+| `@ci-kit/env` | Read `.env`, export without breaking JSON values, redact |
+| `@ci-kit/release` | Semver bump, beta/production tag naming, build numbers |
+| `@ci-kit/http` | fetch with timeout, retry and typed errors |
+| `@ci-kit/roundtable` | Seat-based orchestration: multiple AI roles discuss, produce and converge without a human-supplied agenda |
 
 ## AI providers
 
@@ -59,7 +59,7 @@ its own `sizeSeparator` when the vendor wants something else.
 ### Library usage
 
 ```ts
-import { image, text } from '@cikit-js/ai'
+import { image, text } from '@ci-kit/ai'
 
 const reply = await text({
   prompt: 'Summarise this diff',
@@ -96,7 +96,7 @@ non-retryable for the same reason.
 
 ## Design rules
 
-- Modules do not depend on each other except through `@cikit-js/http`.
+- Modules do not depend on each other except through `@ci-kit/http`.
 - Secrets come from the environment only, never from CLI flags.
 - Every network call has a timeout; only 408, 429, 5xx and network errors are retried.
 - Prompts are business assets: they live in each project, not in this package.
@@ -128,13 +128,13 @@ pnpm -r publish --access public --no-git-checks
 ```
 
 **Publishing must go through pnpm, not npm.** npm does not understand the workspace
-protocol: it writes `"@cikit-js/ai": "workspace:*"` straight into the tarball, and
+protocol: it writes `"@ci-kit/ai": "workspace:*"` straight into the tarball, and
 installing the published package then fails to resolve any internal dependency.
 `pnpm publish` rewrites `workspace:*` to the real version at pack time:
 
 ```bash
 pnpm pack                       # then look at package/package.json inside the tarball
-# "@cikit-js/ai": "0.1.1"  ← real version, not workspace:*
+# "@ci-kit/ai": "0.1.1"  ← real version, not workspace:*
 ```
 
 Authentication uses npm Trusted Publisher (OIDC), so no `NPM_TOKEN` exists anywhere:

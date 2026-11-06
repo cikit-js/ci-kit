@@ -1,5 +1,5 @@
 {
-  "name": "@cikit-js/env",
+  "name": "@ci-kit/env",
   "type": "module",
   "version": "0.0.0",
   "description": "Read .env files and export them safely",

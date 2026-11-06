@@ -20,7 +20,7 @@
 | --- | --- |
 | 内置角色库 | 违反「Prompts are business assets」；用 `init` 生成示例替代 |
 | 采集器（RSS / 网页 / 数据库） | 圆桌只接收 `context`，采集由使用者或其它包负责 |
-| 模型供应商适配 | 统一走 `@cikit-js/ai`，不在本包重复实现 |
+| 模型供应商适配 | 统一走 `@ci-kit/ai`，不在本包重复实现 |
 | 定时调度 | 由 CI（GitLab schedule / cron）负责，`schedule` 字段只是人读声明 |
 | 席位 `extends` 继承 | 等真的出现重复写再抽，避免过早抽象 |
 | 流式输出 | CLI / CI 场景下对日志和管道无价值 |

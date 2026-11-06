@@ -42,7 +42,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # build 必须在 test 之前：包之间按包名互相 import（ai 引用
-      # @cikit-js/http），而包入口指向 dist/index.mjs。dist 不进仓库，
+      # @ci-kit/http），而包入口指向 dist/index.mjs。dist 不进仓库，
       # 先跑测试会报 Failed to resolve entry for package。
       - name: verify
         run: |

@@ -1,5 +1,5 @@
 {
-  "name": "@cikit-js/roundtable",
+  "name": "@ci-kit/roundtable",
   "type": "module",
   "version": "0.0.0",
   "description": "Seat-based orchestration that lets multiple AI roles discuss, produce and converge without a human-supplied agenda",
@@ -34,8 +34,8 @@
     "stub": "unbuild --stub"
   },
   "dependencies": {
-    "@cikit-js/ai": "workspace:*",
-    "@cikit-js/http": "workspace:*",
+    "@ci-kit/ai": "workspace:*",
+    "@ci-kit/http": "workspace:*",
     "cac": "^7.1.0"
   },
   "publishConfig": {

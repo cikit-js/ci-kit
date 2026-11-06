@@ -66,7 +66,7 @@ roundtable-out/
 | `rounds[].phases[].status` | `completed` / `skipped` / `failed` / `budget-exhausted` |
 | `statements[].status` | 同上，加上 `invalid-veto` |
 | `statements[].structured` | 席位 `output: json` 时的解析结果 |
-| `statements[].usage` | 来自 `@cikit-js/ai` 的 `AiResult.usage`，缺失则省略 |
+| `statements[].usage` | 来自 `@ci-kit/ai` 的 `AiResult.usage`，缺失则省略 |
 
 `content` 保留原始文本，不做裁剪或摘要——它是可追溯的最后一道凭据。原始模型输出不写进 `state.json`，只在 `record.json` 里保留可用内容。
 
@@ -173,7 +173,7 @@ roundtable-out/
 ## 库接口
 
 ```ts
-import { checkRoundtable, loadRoundtable, runRoundtable } from '@cikit-js/roundtable'
+import { checkRoundtable, loadRoundtable, runRoundtable } from '@ci-kit/roundtable'
 
 // 只加载与校验，不调用模型
 const plan = await loadRoundtable({ configDir: '.ci-kit/roundtable' })

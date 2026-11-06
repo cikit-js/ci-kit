@@ -202,7 +202,7 @@ importers:
 
   packages/ai:
     dependencies:
-      '@cikit-js/http':
+      '@ci-kit/http':
         specifier: workspace:*
         version: link:../http
       cac:
@@ -217,25 +217,25 @@ importers:
 
   packages/ci-kit:
     dependencies:
-      '@cikit-js/ai':
+      '@ci-kit/ai':
         specifier: workspace:*
         version: link:../ai
-      '@cikit-js/changelog':
+      '@ci-kit/changelog':
         specifier: workspace:*
         version: link:../changelog
-      '@cikit-js/env':
+      '@ci-kit/env':
         specifier: workspace:*
         version: link:../env
-      '@cikit-js/gitlab':
+      '@ci-kit/gitlab':
         specifier: workspace:*
         version: link:../gitlab
-      '@cikit-js/http':
+      '@ci-kit/http':
         specifier: workspace:*
         version: link:../http
-      '@cikit-js/release':
+      '@ci-kit/release':
         specifier: workspace:*
         version: link:../release
-      '@cikit-js/roundtable':
+      '@ci-kit/roundtable':
         specifier: workspace:*
         version: link:../roundtable
       cac:
@@ -246,7 +246,7 @@ importers:
 
   packages/gitlab:
     dependencies:
-      '@cikit-js/http':
+      '@ci-kit/http':
         specifier: workspace:*
         version: link:../http
 
@@ -256,10 +256,10 @@ importers:
 
   packages/roundtable:
     dependencies:
-      '@cikit-js/ai':
+      '@ci-kit/ai':
         specifier: workspace:*
         version: link:../ai
-      '@cikit-js/http':
+      '@ci-kit/http':
         specifier: workspace:*
         version: link:../http
       cac:

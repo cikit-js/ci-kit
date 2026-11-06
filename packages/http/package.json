@@ -1,5 +1,5 @@
 {
-  "name": "@cikit-js/http",
+  "name": "@ci-kit/http",
   "type": "module",
   "version": "0.0.0",
   "description": "Tiny fetch wrapper with timeout, retry and typed errors",

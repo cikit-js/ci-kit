@@ -2,7 +2,7 @@
 
 ## 它是什么
 
-`@cikit-js/roundtable` 是**编排引擎**：按人写好的席位与议事规则，调度多个 AI 依次发言，产出可裁决、可追溯、可续跑的会议记录。
+`@ci-kit/roundtable` 是**编排引擎**：按人写好的席位与议事规则，调度多个 AI 依次发言，产出可裁决、可追溯、可续跑的会议记录。
 
 它不认识「选题」「文章」「审稿人」这些业务词，只认识四种抽象：
 
@@ -20,7 +20,7 @@
 | 不是 | 理由 |
 | --- | --- |
 | 不是角色库 | 预设角色违反 README 的「Prompts are business assets: they live in each project」；开箱可用性用 `--init` 生成示例解决，不把示例当运行时依赖 |
-| 不是模型适配层 | 文本调用统一走 `@cikit-js/ai` 的 `text()`，供应商由 `AI_TEXT_PROVIDER` 决定 |
+| 不是模型适配层 | 文本调用统一走 `@ci-kit/ai` 的 `text()`，供应商由 `AI_TEXT_PROVIDER` 决定 |
 | 不是采集器 | 素材由使用者传入，圆桌不抓 RSS、不读网页、不扫数据库 |
 | 不是决策器 | 裁决由程序按规则判定，模型只提供判断材料 |
 | 不是流式大会 | CLI/CI 场景下流式对日志和管道无价值，一次性输出 |
@@ -29,10 +29,10 @@
 
 现有 README 的设计规则是：
 
-> - Modules do not depend on each other except through `@cikit-js/http`.
+> - Modules do not depend on each other except through `@ci-kit/http`.
 > - Prompts are business assets: they live in each project, not in this package.
 
-放进 `@cikit-js/ai` 会让它从「一次调用」膨胀成「一个框架」，且改议事制度会逼所有用 `text` 的人跟着升版本。
+放进 `@ci-kit/ai` 会让它从「一次调用」膨胀成「一个框架」，且改议事制度会逼所有用 `text` 的人跟着升版本。
 
 新包的依赖方向：
 

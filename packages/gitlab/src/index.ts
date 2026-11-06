@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 import process from 'node:process'
-import { request, requestJson } from '@cikit-js/http'
+import { request, requestJson } from '@ci-kit/http'
 
 export interface GitlabClientOptions {
   baseUrl: string

@@ -1,5 +1,5 @@
 {
-  "name": "@cikit-js/release",
+  "name": "@ci-kit/release",
   "type": "module",
   "version": "0.0.0",
   "description": "Semver and release tag helpers",

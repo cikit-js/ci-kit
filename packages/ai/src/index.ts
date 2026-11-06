@@ -1,7 +1,7 @@
 import type { ImageProvider, TextProvider } from './providers'
 import { Buffer } from 'node:buffer'
 import process from 'node:process'
-import { HttpError, request, requestJson } from '@cikit-js/http'
+import { HttpError, request, requestJson } from '@ci-kit/http'
 import { AiError, classifyStatus } from './errors'
 import { resolveImageProvider, resolveTextProvider } from './providers'
 
