@@ -11,6 +11,9 @@ npx @ci-kit/ai text --prompt-file prompts/review.md --out review.txt
 npx @ci-kit/ai text --prompt-file prompts/write.md --json --max-tokens 16000 --retries 0 --out article.json
 npx @ci-kit/ai image --prompt "flat illustration, no text" --size 2560x1440 --out image.png
 npx @ci-kit/changelog --from v1.0.4 --out notes.md
+npx @ci-kit/roundtable init .ci-kit/roundtable
+npx @ci-kit/roundtable check --config .ci-kit/roundtable
+npx @ci-kit/roundtable run --config .ci-kit/roundtable --out roundtable-out
 ```
 
 ## Packages
