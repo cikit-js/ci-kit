@@ -1,7 +1,7 @@
 {
   "name": "@cikit-js/ai",
   "type": "module",
-  "version": "0.2.1",
+  "version": "0.0.0",
   "description": "Multi-provider AI client for text and image generation",
   "author": "imba97",
   "license": "MIT",

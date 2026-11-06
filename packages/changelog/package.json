@@ -1,7 +1,7 @@
 {
   "name": "@cikit-js/changelog",
   "type": "module",
-  "version": "0.2.1",
+  "version": "0.0.0",
   "description": "Turn git commits into grouped release notes",
   "author": "imba97",
   "license": "MIT",

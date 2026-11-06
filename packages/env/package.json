@@ -1,7 +1,7 @@
 {
   "name": "@cikit-js/env",
   "type": "module",
-  "version": "0.2.1",
+  "version": "0.0.0",
   "description": "Read .env files and export them safely",
   "author": "imba97",
   "license": "MIT",

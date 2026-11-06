@@ -1,7 +1,7 @@
 {
   "name": "@cikit-js/release",
   "type": "module",
-  "version": "0.2.1",
+  "version": "0.0.0",
   "description": "Semver and release tag helpers",
   "author": "imba97",
   "license": "MIT",

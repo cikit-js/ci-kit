@@ -1,7 +1,7 @@
 {
   "name": "@cikit-js/core",
   "type": "module",
-  "version": "0.2.1",
+  "version": "0.0.0",
   "description": "Meta package that re-exports every ci-kit module",
   "author": "imba97",
   "license": "MIT",
