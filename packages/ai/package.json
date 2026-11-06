@@ -1,7 +1,7 @@
 {
   "name": "@ci-kit/ai",
   "type": "module",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Multi-provider AI client for text and image generation",
   "author": "imba97",
   "license": "MIT",
