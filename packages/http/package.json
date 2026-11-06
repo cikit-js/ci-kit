@@ -1,16 +1,16 @@
 {
-  "name": "@ci-kit/http",
+  "name": "@cikit-js/http",
   "type": "module",
   "version": "0.2.1",
   "description": "Tiny fetch wrapper with timeout, retry and typed errors",
   "license": "MIT",
-  "homepage": "https://github.com/imba97/ci-kit#readme",
+  "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/imba97/ci-kit.git"
+    "url": "git+https://github.com/cikit-js/ci-kit.git"
   },
   "bugs": {
-    "url": "https://github.com/imba97/ci-kit/issues"
+    "url": "https://github.com/cikit-js/ci-kit/issues"
   },
   "exports": {
     ".": {

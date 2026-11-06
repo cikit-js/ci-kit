@@ -32,7 +32,7 @@
 
 | 编号 | 问题 | 结论 |
 | --- | --- | --- |
-| 1 | 包位置 | 新建 `@ci-kit/roundtable`，不并入 `@ci-kit/ai` |
+| 1 | 包位置 | 新建 `@cikit-js/roundtable`，不并入 `@cikit-js/ai` |
 | 2 | 包名 | `roundtable`，含义是「给 AI 们的圆桌」 |
 | 3 | 是否支持阶段 | 支持，阶段是续跑与幂等的锚点 |
 | 4 | `sees` 默认值 | `all`，独立席位显式写 `none` |

@@ -1,16 +1,16 @@
 {
-  "name": "@ci-kit/core",
+  "name": "@cikit-js/core",
   "type": "module",
   "version": "0.2.1",
   "description": "Meta package that re-exports every ci-kit module",
   "license": "MIT",
-  "homepage": "https://github.com/imba97/ci-kit#readme",
+  "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/imba97/ci-kit.git"
+    "url": "git+https://github.com/cikit-js/ci-kit.git"
   },
   "bugs": {
-    "url": "https://github.com/imba97/ci-kit/issues"
+    "url": "https://github.com/cikit-js/ci-kit/issues"
   },
   "exports": {
     ".": {
@@ -33,13 +33,13 @@
     "stub": "unbuild --stub"
   },
   "dependencies": {
-    "@ci-kit/ai": "workspace:*",
-    "@ci-kit/changelog": "workspace:*",
-    "@ci-kit/env": "workspace:*",
-    "@ci-kit/gitlab": "workspace:*",
-    "@ci-kit/http": "workspace:*",
-    "@ci-kit/release": "workspace:*",
-    "@ci-kit/roundtable": "workspace:*",
+    "@cikit-js/ai": "workspace:*",
+    "@cikit-js/changelog": "workspace:*",
+    "@cikit-js/env": "workspace:*",
+    "@cikit-js/gitlab": "workspace:*",
+    "@cikit-js/http": "workspace:*",
+    "@cikit-js/release": "workspace:*",
+    "@cikit-js/roundtable": "workspace:*",
     "cac": "^7.1.0"
   },
   "publishConfig": {

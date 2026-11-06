@@ -1,5 +1,5 @@
 /**
- * @ci-kit/roundtable
+ * @cikit-js/roundtable
  *
  * Placeholder package. The design is settled in `ai-docs/design-docs/roundtable/`;
  * the implementation has not started yet, so this module exports only the
@@ -32,7 +32,7 @@ export interface RoundtableResult {
 }
 
 function notImplemented(): never {
-  throw new Error('@ci-kit/roundtable is not implemented yet; see ai-docs/design-docs/roundtable/')
+  throw new Error('@cikit-js/roundtable is not implemented yet; see ai-docs/design-docs/roundtable/')
 }
 
 /** Validate `table.md` and `seats/*.md` without calling a model. */

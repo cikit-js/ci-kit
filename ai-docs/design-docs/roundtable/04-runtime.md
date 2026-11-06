@@ -106,12 +106,12 @@ finalize  写会议记录四件套，返回结构化结果
 | `fallback` | 行为 |
 | --- | --- |
 | `skip`（默认） | 跳过该席位，记 `skipped`，继续 |
-| `retry` | 按 `@ci-kit/ai` 的 `retries` 重试；仍失败则按 `skip` 处理 |
+| `retry` | 按 `@cikit-js/ai` 的 `retries` 重试；仍失败则按 `skip` 处理 |
 | `abort` | 立即终止整场会，状态 `aborted` |
 
 **默认 `skip`** 的理由：无人值守时，一个席位失败不应该拖死整场会；但它的缺席必须被记录，不能被当成同意。
 
-失败分类沿用 `@ci-kit/ai` 的 `AiError.kind`：
+失败分类沿用 `@cikit-js/ai` 的 `AiError.kind`：
 
 | kind | 是否重试 |
 | --- | --- |

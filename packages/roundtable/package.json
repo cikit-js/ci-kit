@@ -1,16 +1,16 @@
 {
-  "name": "@ci-kit/roundtable",
+  "name": "@cikit-js/roundtable",
   "type": "module",
   "version": "0.2.1",
   "description": "Seat-based orchestration that lets multiple AI roles discuss, produce and converge without a human-supplied agenda",
   "license": "MIT",
-  "homepage": "https://github.com/imba97/ci-kit#readme",
+  "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/imba97/ci-kit.git"
+    "url": "git+https://github.com/cikit-js/ci-kit.git"
   },
   "bugs": {
-    "url": "https://github.com/imba97/ci-kit/issues"
+    "url": "https://github.com/cikit-js/ci-kit/issues"
   },
   "exports": {
     ".": {
@@ -33,8 +33,8 @@
     "stub": "unbuild --stub"
   },
   "dependencies": {
-    "@ci-kit/ai": "workspace:*",
-    "@ci-kit/http": "workspace:*",
+    "@cikit-js/ai": "workspace:*",
+    "@cikit-js/http": "workspace:*",
     "cac": "^7.1.0"
   },
   "publishConfig": {

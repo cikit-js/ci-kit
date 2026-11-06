@@ -6,13 +6,13 @@
   "packageManager": "pnpm@12.16.1",
   "description": "Reusable building blocks for CI pipelines: AI calls, GitLab releases, changelogs, version tagging.",
   "license": "MIT",
-  "homepage": "https://github.com/imba97/ci-kit#readme",
+  "homepage": "https://github.com/cikit-js/ci-kit#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/imba97/ci-kit.git"
+    "url": "git+https://github.com/cikit-js/ci-kit.git"
   },
   "bugs": {
-    "url": "https://github.com/imba97/ci-kit/issues"
+    "url": "https://github.com/cikit-js/ci-kit/issues"
   },
   "engines": {
     "node": ">=20.19.0"
