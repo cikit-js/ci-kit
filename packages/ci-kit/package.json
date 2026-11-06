@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/ci-kit",
+  "name": "@ci-kit/core",
   "type": "module",
   "version": "0.2.1",
   "description": "Meta package that re-exports every ci-kit module",
@@ -33,12 +33,13 @@
     "stub": "unbuild --stub"
   },
   "dependencies": {
-    "@imba97/ci-kit-ai": "workspace:*",
-    "@imba97/ci-kit-changelog": "workspace:*",
-    "@imba97/ci-kit-env": "workspace:*",
-    "@imba97/ci-kit-gitlab": "workspace:*",
-    "@imba97/ci-kit-http": "workspace:*",
-    "@imba97/ci-kit-release": "workspace:*",
+    "@ci-kit/ai": "workspace:*",
+    "@ci-kit/changelog": "workspace:*",
+    "@ci-kit/env": "workspace:*",
+    "@ci-kit/gitlab": "workspace:*",
+    "@ci-kit/http": "workspace:*",
+    "@ci-kit/release": "workspace:*",
+    "@ci-kit/roundtable": "workspace:*",
     "cac": "^7.1.0"
   },
   "publishConfig": {

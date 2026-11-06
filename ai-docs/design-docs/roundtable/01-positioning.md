@@ -29,7 +29,7 @@
 
 现有 README 的设计规则是：
 
-> - Modules do not depend on each other except through `@imba97/ci-kit-http`.
+> - Modules do not depend on each other except through `@ci-kit/http`.
 > - Prompts are business assets: they live in each project, not in this package.
 
 放进 `@ci-kit/ai` 会让它从「一次调用」膨胀成「一个框架」，且改议事制度会逼所有用 `text` 的人跟着升版本。

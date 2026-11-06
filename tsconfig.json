@@ -8,23 +8,26 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
-      "@imba97/ci-kit-ai": [
+      "@ci-kit/ai": [
         "./packages/ai/src/index.ts"
       ],
-      "@imba97/ci-kit-changelog": [
+      "@ci-kit/changelog": [
         "./packages/changelog/src/index.ts"
       ],
-      "@imba97/ci-kit-env": [
+      "@ci-kit/env": [
         "./packages/env/src/index.ts"
       ],
-      "@imba97/ci-kit-gitlab": [
+      "@ci-kit/gitlab": [
         "./packages/gitlab/src/index.ts"
       ],
-      "@imba97/ci-kit-http": [
+      "@ci-kit/http": [
         "./packages/http/src/index.ts"
       ],
-      "@imba97/ci-kit-release": [
+      "@ci-kit/release": [
         "./packages/release/src/index.ts"
+      ],
+      "@ci-kit/roundtable": [
+        "./packages/roundtable/src/index.ts"
       ]
     },
     "resolveJsonModule": true,

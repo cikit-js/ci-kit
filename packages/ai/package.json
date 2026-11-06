@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/ci-kit-ai",
+  "name": "@ci-kit/ai",
   "type": "module",
   "version": "0.2.1",
   "description": "Multi-provider AI client for text and image generation",
@@ -33,7 +33,7 @@
     "stub": "unbuild --stub"
   },
   "dependencies": {
-    "@imba97/ci-kit-http": "workspace:*",
+    "@ci-kit/http": "workspace:*",
     "cac": "^7.1.0"
   },
   "publishConfig": {

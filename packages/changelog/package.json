@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/ci-kit-changelog",
+  "name": "@ci-kit/changelog",
   "type": "module",
   "version": "0.2.1",
   "description": "Turn git commits into grouped release notes",

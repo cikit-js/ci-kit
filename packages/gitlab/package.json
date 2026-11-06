@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/ci-kit-gitlab",
+  "name": "@ci-kit/gitlab",
   "type": "module",
   "version": "0.2.1",
   "description": "Minimal GitLab API client for releases, packages and schedules",
@@ -30,7 +30,7 @@
     "stub": "unbuild --stub"
   },
   "dependencies": {
-    "@imba97/ci-kit-http": "workspace:*"
+    "@ci-kit/http": "workspace:*"
   },
   "publishConfig": {
     "access": "public"

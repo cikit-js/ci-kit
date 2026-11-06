@@ -12,7 +12,7 @@ cli
   .option('--to <tag>', 'Target tag', { default: 'HEAD' })
   .option('--out <path>', 'Write result to file')
   .action(async (options: Record<string, string | undefined>) => {
-    const { collectCommits, renderChangelog } = await import('@imba97/ci-kit-changelog')
+    const { collectCommits, renderChangelog } = await import('@ci-kit/changelog')
     const markdown = renderChangelog(collectCommits({ from: options.from, to: options.to }))
     await output(markdown, options.out)
   })
@@ -24,7 +24,7 @@ cli
   .option('--channel <channel>', 'beta or production', { default: 'beta' })
   .option('--bump <kind>', 'patch, minor or major', { default: 'patch' })
   .action(async (options: Record<string, string | undefined>) => {
-    const { bumpVersion, formatProductionTag, nextBetaTag, parseTag } = await import('@imba97/ci-kit-release')
+    const { bumpVersion, formatProductionTag, nextBetaTag, parseTag } = await import('@ci-kit/release')
     const tags = (options.tags ?? '').split(',').map(tag => tag.trim()).filter(Boolean)
     const version = options.version
     if (!version) {
@@ -48,7 +48,7 @@ cli
   .option('--out <path>', 'Output path')
   .action(async (options: Record<string, string | undefined>) => {
     const { readFileSync } = await import('node:fs')
-    const { text } = await import('@imba97/ci-kit-ai')
+    const { text } = await import('@ci-kit/ai')
     const prompt = options.promptFile
       ? readFileSync(options.promptFile, 'utf8')
       : options.prompt

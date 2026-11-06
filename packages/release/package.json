@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/ci-kit-release",
+  "name": "@ci-kit/release",
   "type": "module",
   "version": "0.2.1",
   "description": "Semver and release tag helpers",

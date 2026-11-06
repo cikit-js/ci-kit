@@ -1,5 +1,5 @@
 {
-  "name": "@imba97/ci-kit-http",
+  "name": "@ci-kit/http",
   "type": "module",
   "version": "0.2.1",
   "description": "Tiny fetch wrapper with timeout, retry and typed errors",
