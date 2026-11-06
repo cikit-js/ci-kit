@@ -3,7 +3,7 @@
 import process from 'node:process'
 import { cac } from 'cac'
 import pkg from '../package.json'
-import { defaultOutDir, loadRoundtable, RoundtableConfigError, runRoundtable } from './index'
+import { defaultOutDir, loadRoundtable, resumeRoundtable, RoundtableConfigError, runRoundtable } from './index'
 
 const cli = cac('ci-kit-roundtable')
 
@@ -42,6 +42,7 @@ cli
   })
   .option('--topic <text>', 'Optional topic override; seats propose their own by default')
   .option('--context <text>', 'Material for the seats, repeatable')
+  .option('--resume <dir>', 'Continue an interrupted run directory')
   .action(async (options: Record<string, string | string[] | undefined>) => {
     const rawContext = options.context
     const context = rawContext === undefined
@@ -50,17 +51,25 @@ cli
         ? rawContext
         : [rawContext]
     try {
-      const result = await runRoundtable({
+      const common = {
         configDir: String(options.config ?? '.ci-kit/roundtable'),
-        outDir: options.out === undefined
-          ? undefined
-          : String(options.out),
         topic: options.topic === undefined
           ? undefined
           : String(options.topic),
         context,
-        onProgress: line => process.stderr.write(`${line}\n`)
-      })
+        onProgress: (line: string) => process.stderr.write(`${line}\n`)
+      }
+      const result = options.resume === undefined
+        ? await runRoundtable({
+            ...common,
+            outDir: options.out === undefined
+              ? undefined
+              : String(options.out)
+          })
+        : await resumeRoundtable({
+            ...common,
+            runDir: String(options.resume)
+          })
       const total = result.budgetTotal === undefined
         ? 'unlimited'
         : String(result.budgetTotal)

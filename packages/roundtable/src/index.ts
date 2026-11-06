@@ -1,5 +1,5 @@
 import type { LoadedRoundtable } from './config'
-import type { BudgetState, RoundtableStatus, TextCaller } from './engine'
+import type { BudgetState, PhaseRecord, RoundtableStatus, TextCaller } from './engine'
 import type { RoundtableRecord, RunState } from './record'
 import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -251,18 +251,177 @@ export async function runRoundtable(options: RoundtableOptions): Promise<Roundta
   }
 }
 
-export interface ResumeOptions extends RoundtableOptions {
+export interface ResumeOptions extends Omit<RoundtableOptions, 'outDir'> {
   /** Run directory produced by a previous, interrupted execution. */
   runDir: string
 }
 
 /**
- * Continue an interrupted run.
+ * Continue an interrupted run from the phase that did not finish.
  *
  * Rules are fingerprinted: if a seat or the table changed, the previous
  * progress described a different meeting and cannot be resumed. That mirrors
  * "editing a prompt never rewrites an already-published draft".
+ *
+ * A run that already reached a terminal status is returned as-is rather than
+ * re-executed: repeating a finished meeting would spend money to reach the same
+ * answer.
  */
-export async function resumeRoundtable(_options: ResumeOptions): Promise<RoundtableResult> {
-  throw new Error('resumeRoundtable is not implemented yet; start a new meeting instead')
+export async function resumeRoundtable(options: ResumeOptions): Promise<RoundtableResult> {
+  const runDir = resolve(options.runDir)
+  const loaded = await loadRoundtable({ configDir: options.configDir, schema: RECORD_SCHEMA })
+  const state = await readState(runDir)
+  if (!state) {
+    throw new RoundtableConfigError(`No state.json in ${runDir}; nothing to resume`)
+  }
+  if (state.fingerprint !== loaded.fingerprint) {
+    throw new RoundtableConfigError(
+      'Rules changed since this run started; open a new meeting instead of resuming'
+    )
+  }
+
+  const recordPath = join(runDir, 'record.json')
+  const minutesPath = join(runDir, 'record.md')
+  if (state.status !== 'running') {
+    const existing = buildRecord(state, loaded)
+    await writeJson(recordPath, existing)
+    await writeText(minutesPath, renderRecordMarkdown(existing, loaded))
+    return {
+      status: existing.status,
+      recordPath,
+      runDir,
+      record: existing,
+      used: state.budget.used,
+      budgetTotal: state.budget.total
+    }
+  }
+
+  const context = state.context.length
+    ? state.context
+    : toContextList(options.context)
+  const instructions = phaseInstructions(loaded, await readTableBody(options.configDir))
+  const persist = () => writeJson(join(runDir, 'state.json'), state)
+
+  // Start from the attempt that was interrupted; completed phases inside it are
+  // re-read from state so a resume never repeats finished work.
+  for (let attempt = state.rounds.length || 1; attempt <= loaded.table.maxAttempts; attempt++) {
+    state.attempt = attempt
+    options.onProgress?.(`roundtable: 续跑第 ${attempt} 轮`)
+
+    const donePhases: PhaseRecord[] = state.rounds.find(round => round.attempt === attempt)?.phases ?? []
+    // Resume at the first phase that has no completed record. A phase missing
+    // from `donePhases` never finished, and a phase present but not completed
+    // stopped midway; both must run. Everything before that is preserved.
+    const startPhase: number = loaded.phases.findIndex((phase) => {
+      const record = donePhases.find(item => item.id === phase.id)
+      return !record || record.status !== 'completed'
+    })
+    if (startPhase === -1) {
+      // Nothing left to run in this attempt; keep what we have.
+      state.status = donePhases.some(phase => phase.judgement && !phase.judgement.passed)
+        ? 'rejected'
+        : 'passed'
+      break
+    }
+    const startPhaseId: string | undefined = loaded.phases[startPhase]?.id
+    const revisionNotes = collectRejectionNotes(
+      { attempt: attempt - 1, phases: state.rounds.at(-1)?.phases ?? [] },
+      loaded
+    )
+
+    const result = await runAttempt(attempt, {
+      loaded,
+      context,
+      topic: state.topic ?? options.topic,
+      env: options.env,
+      budget: state.budget,
+      phaseInstructions: instructions,
+      revisionNotes,
+      persist,
+      callText: options.callText,
+      // Finished phases stay available as input for the resumed ones.
+      completedPhases: donePhases.filter(phase => phase.status === 'completed'),
+      events: {
+        onStatement: (statement) => {
+          const seat = loaded.byId.get(statement.seat)
+          options.onProgress?.(`  ${seat?.identity.name ?? statement.seat} · ${statement.phase} · ${statement.status}`)
+        },
+        onPhaseStart: (phase) => {
+          state.phaseId = phase.id
+          state.phaseIndex = loaded.phases.findIndex(item => item.id === phase.id)
+        }
+      },
+      startPhaseId
+    })
+
+    // Rebuild the round in table order so finished phases stay at their
+    // position: a resumed attempt only produces the phases after the cut.
+    const merged: PhaseRecord[] = loaded.phases.map((phase) => {
+      const fresh = result.round.phases.find(item => item.id === phase.id)
+      if (fresh) {
+        return fresh
+      }
+      const previous = donePhases.find((item: PhaseRecord) => item.id === phase.id)
+      return previous ?? { id: phase.id, status: 'skipped', statements: [] }
+    })
+    state.rounds = state.rounds.filter(round => round.attempt !== attempt)
+      .concat({ attempt, phases: merged })
+
+    if (result.stop) {
+      state.status = 'aborted'
+      state.error = result.stop === 'budget-exhausted'
+        ? `预算在阶段 "${state.phaseId ?? ''}" 耗尽`
+        : '有席位要求中止'
+      break
+    }
+
+    const anyJudged = merged.some(phase => phase.judgement)
+    const passed = anyJudged && merged.every(phase => !phase.judgement || phase.judgement.passed)
+    if (anyJudged
+      ? passed
+      : merged.every(phase => phase.status === 'completed')) {
+      state.status = 'passed'
+      break
+    }
+    if (attempt === loaded.table.maxAttempts) {
+      state.status = 'rejected'
+      break
+    }
+    if (loaded.table.onVeto === 'abort') {
+      state.status = 'aborted'
+      state.error = '规则要求被否决即中止'
+      break
+    }
+  }
+
+  if (state.status === 'running') {
+    state.status = 'rejected'
+  }
+  state.finishedAt = new Date().toISOString()
+  state.resumable = false
+
+  const record = buildRecord(state, loaded)
+  await writeJson(join(runDir, 'state.json'), state)
+  await writeJson(recordPath, record)
+  await writeText(minutesPath, renderRecordMarkdown(record, loaded))
+
+  return {
+    status: record.status,
+    recordPath,
+    runDir,
+    record,
+    used: state.budget.used,
+    budgetTotal: state.budget.total
+  }
+}
+
+async function readState(runDir: string): Promise<RunState | null> {
+  const { readFile } = await import('node:fs/promises')
+  try {
+    const raw = await readFile(join(runDir, 'state.json'), 'utf8')
+    return JSON.parse(raw) as RunState
+  }
+  catch {
+    return null
+  }
 }

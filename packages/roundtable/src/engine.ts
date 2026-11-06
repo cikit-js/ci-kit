@@ -69,6 +69,14 @@ export interface AttemptResult {
 export interface AttemptOptions extends EngineOptions {
   /** Veto reasons from the previous attempt, fed to the propose phase. */
   revisionNotes?: string[]
+  /** Resume this attempt at the given phase instead of the first one. */
+  startPhaseId?: string
+  /**
+   * Records of phases that already finished before an interruption. They are
+   * treated as produced input so downstream phases are not pruned, and their
+   * statements stay visible to seats that allow it.
+   */
+  completedPhases?: PhaseRecord[]
 }
 
 function remainingTotal(budget: BudgetState): number {
@@ -384,11 +392,22 @@ export async function runAttempt(
 ): Promise<AttemptResult> {
   const { loaded, events } = options
   const phases: PhaseRecord[] = []
-  let allStatements: Statement[] = []
   let stop: 'aborted' | 'budget-exhausted' | undefined
   let judgement: Judgement | undefined
 
-  for (let index = 0; index < loaded.phases.length; index++) {
+  const startIndex = options.startPhaseId
+    ? Math.max(0, loaded.phases.findIndex(item => item.id === options.startPhaseId))
+    : 0
+
+  // Phases finished before a resume count as produced input; without them the
+  // first resumed phase would look like it had no dependency and get pruned.
+  const finished: PhaseRecord[] = [
+    ...(options.completedPhases ?? [])
+  ]
+  // Seats may see what a previous run already produced, subject to `sees`.
+  let allStatements: Statement[] = finished.flatMap(phase => phase.statements)
+
+  for (let index = startIndex; index < loaded.phases.length; index++) {
     const phase = loaded.phases[index]!
     const previous = loaded.phases[index - 1]
     const deps = phase.requires.length
@@ -397,7 +416,7 @@ export async function runAttempt(
         ? [previous.id]
         : []
     const dependenciesProduced = deps.every((dep) => {
-      const record = phases.find(item => item.id === dep)
+      const record = phases.find(item => item.id === dep) ?? finished.find(item => item.id === dep)
       return Boolean(record && record.status === 'completed')
     })
 
