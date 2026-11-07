@@ -80,6 +80,38 @@ describe('text requests', () => {
     })
   })
 
+  it('sends a schema as a named structured output contract', async () => {
+    const calls = mockFetch(() => chat('{"verdict":"pass"}'))
+    const schema = {
+      type: 'object' as const,
+      properties: {
+        verdict: {
+          type: 'string' as const,
+          enum: ['pass', 'reject']
+        }
+      },
+      required: ['verdict'],
+      additionalProperties: false
+    }
+    await text({ prompt: 'hi', schema, env: ENV })
+    expect(calls[0]!.body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'reply', strict: true, schema }
+    })
+  })
+
+  it('lets a schema imply JSON without json: true', async () => {
+    const calls = mockFetch(() => chat('{}'))
+    await text({
+      prompt: 'hi',
+      schema: { type: 'object' as const, properties: {} },
+      env: ENV
+    })
+    expect(calls[0]!.body).toMatchObject({
+      response_format: { type: 'json_schema' }
+    })
+  })
+
   it('omits optional parameters when they are not requested', async () => {
     const calls = mockFetch(() => chat('ok'))
     await text({ prompt: 'hi', env: ENV })
