@@ -1,310 +1,269 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { loadRoundtable, RoundtableConfigError } from '../src/config'
+import { checkRoundtable, loadRoundtable, RoundtableConfigError } from '../src/config'
+import { readFrontmatter } from '../src/frontmatter'
+import { parseTable, TABLE_DEFAULTS, TableError } from '../src/table'
+import { cleanupScratch, makeConfig } from './helpers'
 
-const scratch: string[] = []
+afterEach(cleanupScratch)
 
-async function makeConfig(files: Record<string, string>): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'rt-config-'))
-  scratch.push(dir)
-  const seatsDir = join(dir, 'seats')
-  await mkdir(seatsDir, { recursive: true })
-  for (const [name, content] of Object.entries(files)) {
-    await writeFile(join(name === 'table.md'
-      ? dir
-      : seatsDir, name), content, 'utf8')
-  }
-  return dir
+function table(source: string, fallbackTitle = '目录名') {
+  return parseTable(readFrontmatter(source, 'table.md'), fallbackTitle)
 }
 
-afterEach(async () => {
-  await Promise.all(scratch.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
+/** The final config from 03-table.md, pasted as-is. */
+const FINAL_TABLE = `---
+title: 文章审核圆桌
+durationMs: 180000
+maxPoolTokens: 5000
+
+threshold: 0.6
+onVeto: abort
+maxAttempts: 1
+---
+
+# 文章审核圆桌
+
+一篇文章写完、通过机器审核之后，交给这张圆桌再过一遍。
+`
+
+const UTHER = `---
+id: uther
+role: 合规与风险
+
+identity:
+  name: 乌瑟尔
+  title: 内容合规审核
+  background: 见过因为一句话被投诉、被截图传播的案例
+
+persona:
+  stance: 拿不准的一律删
+  style: 冷静、不带情绪
+
+seat:
+  sees: all
+  canVeto: true
+  weight: 1
+  maxTokens: 80
+  fallback: skip
+  output: json
+---
+
+你负责判断这篇文章能不能公开。
+一次只说一句：哪里不能发，或者可以发。
+`
+
+describe('parseTable', () => {
+  it('reads the documented final config', () => {
+    expect(table(FINAL_TABLE)).toEqual({
+      title: '文章审核圆桌',
+      durationMs: 180000,
+      maxPoolTokens: 5000,
+      threshold: 0.6,
+      onVeto: 'abort',
+      maxAttempts: 1
+    })
+  })
+
+  it('applies every default when the table states nothing', () => {
+    expect(table('---\ndurationMs: 60000\n---')).toEqual({
+      title: '目录名',
+      durationMs: 60000,
+      maxPoolTokens: TABLE_DEFAULTS.maxPoolTokens,
+      threshold: TABLE_DEFAULTS.threshold,
+      onVeto: TABLE_DEFAULTS.onVeto,
+      maxAttempts: TABLE_DEFAULTS.maxAttempts
+    })
+    expect(TABLE_DEFAULTS).toEqual({
+      durationMs: 180000,
+      maxPoolTokens: 3000,
+      threshold: 0.5,
+      onVeto: 're-propose',
+      maxAttempts: 3
+    })
+  })
+
+  it('rejects unknown fields, including the ones this model removed', () => {
+    expect(() => table('---\nphases:\n  - id: propose\n---')).toThrow(/unknown field.*phases/)
+    expect(() => table('---\nbudget:\n  total: 10\n---')).toThrow(/unknown field.*budget/)
+    expect(() => table('---\nschedule: daily\n---')).toThrow(/unknown field.*schedule/)
+    expect(() => table('---\ntimeoutMs: 1000\n---')).toThrow(/unknown field.*timeoutMs/)
+  })
+
+  it('requires positive integers', () => {
+    for (const field of ['durationMs', 'maxPoolTokens', 'maxAttempts']) {
+      expect(() => table(`---\n${field}: 0\n---`)).toThrow(new RegExp(`${field} must be a positive integer`))
+      expect(() => table(`---\n${field}: -1\n---`)).toThrow(new RegExp(`${field} must be a positive integer`))
+      expect(() => table(`---\n${field}: 1.5\n---`)).toThrow(new RegExp(`${field} must be a positive integer`))
+      expect(() => table(`---\n${field}: "180000"\n---`)).toThrow(new RegExp(`${field} must be a`))
+    }
+  })
+
+  it('keeps threshold within 0 and 1, both ends included', () => {
+    expect(table('---\nthreshold: 0\n---').threshold).toBe(0)
+    expect(table('---\nthreshold: 1\n---').threshold).toBe(1)
+    expect(() => table('---\nthreshold: 1.2\n---')).toThrow(/threshold must be between 0 and 1/)
+    expect(() => table('---\nthreshold: -0.1\n---')).toThrow(/threshold must be between 0 and 1/)
+    expect(() => table('---\nthreshold: high\n---')).toThrow(/threshold must be a number/)
+  })
+
+  it('accepts only the three onVeto actions', () => {
+    for (const value of ['re-propose', 'revise', 'abort']) {
+      expect(table(`---\nonVeto: ${value}\n---`).onVeto).toBe(value)
+    }
+    expect(() => table('---\nonVeto: retry\n---')).toThrow(/onVeto must be re-propose, revise or abort/)
+  })
+
+  it('names the table it came from', () => {
+    try {
+      table('---\ndurationMs: 0\n---')
+    }
+    catch (error) {
+      expect(error).toBeInstanceOf(TableError)
+      expect((error as Error).message.startsWith('table: ')).toBe(true)
+      return
+    }
+    throw new Error('expected parse to fail')
+  })
 })
 
-const TABLE = `---
-title: 测试会
-budget:
-  total: 6
-  perSeat: 2
-phases:
-  - id: propose
-    seats: [editor]
-  - id: review
-    seats: [guard]
-    vetoable: true
----
-`
-
-const EDITOR = `---
-id: editor
-role: 选题
-seat:
-  phase: [propose]
-  canPropose: true
----
-从材料里挑一个议题。
-`
-
-const GUARD = `---
-id: guard
-role: 审核
-seat:
-  phase: [review]
-  canVeto: true
-  sees: none
----
-核对事实。
-`
-
 describe('loadRoundtable', () => {
-  it('loads a valid table and seats', async () => {
-    const dir = await makeConfig({ 'table.md': TABLE, 'editor.md': EDITOR, 'guard.md': GUARD })
-    const loaded = await loadRoundtable({ configDir: dir })
-
-    expect(loaded.table.title).toBe('测试会')
-    expect(loaded.table.budget).toEqual({ total: 6, perSeat: 2 })
-    expect(loaded.phases.map(phase => phase.id)).toEqual(['propose', 'review'])
-    expect(loaded.phases[0]!.seats).toEqual(['editor'])
-    expect(loaded.phases[1]!.seats).toEqual(['guard'])
-    expect(loaded.byId.get('guard')!.seat.sees).toBe('none')
-  })
-
-  it('derives phase participants from seat.phase when the table omits seats', async () => {
-    const table = `---
-phases:
-  - id: propose
-  - id: review
-    vetoable: true
----
-`
-    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR, 'guard.md': GUARD })
-    const loaded = await loadRoundtable({ configDir: dir })
-    expect(loaded.phases[0]!.seats).toEqual(['editor'])
-    expect(loaded.phases[1]!.seats).toEqual(['guard'])
-  })
-
-  it('defaults unseen fields per the design', async () => {
+  it('loads the table, every seat, and only enables the attending ones', async () => {
     const dir = await makeConfig({
-      'table.md': TABLE,
-      'editor.md': 'id: editor\nrole: 选题\n',
-      'guard.md': GUARD
-    })
-    const loaded = await loadRoundtable({ configDir: dir })
-    const editor = loaded.byId.get('editor')!
-    expect(editor.identity.name).toBe('选题')
-    expect(editor.seat.sees).toBe('all')
-    expect(editor.seat.fallback).toBe('skip')
-    expect(editor.seat.output).toBe('text')
-    expect(editor.seat.weight).toBe(1)
-    expect(editor.enabled).toBe(true)
-  })
-
-  it('fails when the config directory is missing', async () => {
-    await expect(loadRoundtable({
-      configDir: join(tmpdir(), 'does-not-exist-rt')
-    }))
-      .rejects
-      .toThrow(RoundtableConfigError)
-  })
-
-  it('fails when table.md is missing', async () => {
-    const dir = await makeConfig({ 'editor.md': EDITOR, 'guard.md': GUARD })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/Missing table.md/)
-  })
-
-  it('fails when seats/ has no seat files', async () => {
-    const dir = await makeConfig({ 'table.md': TABLE })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/No seat files/)
-  })
-
-  it('rejects duplicate seat ids', async () => {
-    const dir = await makeConfig({
-      'table.md': TABLE,
-      'a.md': 'id: dup\nrole: 甲\n',
-      'b.md': 'id: dup\nrole: 乙\n'
-    })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/Duplicate seat id/)
-  })
-
-  it('rejects a phase naming an unknown seat', async () => {
-    const table = `---
-phases:
-  - id: propose
-    seats: [ghost]
----
-`
-    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/unknown seat "ghost"/)
-  })
-
-  it('rejects a phase whose seats all belong to other phases', async () => {
-    const table = `---
-phases:
-  - id: review
----
-`
-    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/no participating seats/)
-  })
-
-  it('rejects duplicate phase ids', async () => {
-    const table = `---
-phases:
-  - id: propose
-  - id: propose
----
-`
-    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/duplicate phase id/)
-  })
-
-  it('rejects a require pointing forward in time', async () => {
-    const table = `---
-phases:
-  - id: propose
-    requires: [review]
-  - id: review
----
-`
-    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR, 'guard.md': GUARD })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/comes later/)
-  })
-
-  it('rejects a require pointing at an unknown phase', async () => {
-    const table = `---
-phases:
-  - id: propose
-    requires: [ghost]
----
-`
-    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/requires unknown phase/)
-  })
-
-  it('rejects a seat listed in a phase it does not attend', async () => {
-    const table = `---
-phases:
-  - id: review
-    seats: [editor, guard]
-    vetoable: true
----
-`
-    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR, 'guard.md': GUARD })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/seat.phase does not include it/)
-  })
-
-  it('rejects unknown fields at every level', async () => {
-    const dir = await makeConfig({
-      'table.md': TABLE,
-      'editor.md': 'id: editor\nrole: 选题\nbogus: 1\n',
-      'guard.md': GUARD
-    })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/unknown field "bogus"/)
-
-    const dir2 = await makeConfig({
-      'table.md': TABLE,
-      'editor.md': 'id: editor\nrole: 选题\npersona:\n  temper: 急\n',
-      'guard.md': GUARD
-    })
-    await expect(loadRoundtable({ configDir: dir2 })).rejects.toThrow(/unknown field in persona: temper/)
-  })
-
-  it('rejects a field declared both flat and grouped', async () => {
-    const dir = await makeConfig({
-      'table.md': TABLE,
-      'editor.md': 'id: editor\nrole: 选题\nname: 甲\nidentity:\n  name: 乙\n',
-      'guard.md': GUARD
-    })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/declared both at the top level/)
-  })
-
-  it('fails when every seat is disabled', async () => {
-    const dir = await makeConfig({
-      'table.md': TABLE,
-      'editor.md': 'id: editor\nrole: 选题\nenabled: false\n',
-      'guard.md': 'id: guard\nrole: 审核\nenabled: false\n'
-    })
-    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/at least one enabled seat/)
-  })
-
-  it('skips disabled seats when resolving participants', async () => {
-    const dir = await makeConfig({
-      'table.md': TABLE,
-      'editor.md': EDITOR,
-      'guard.md': `${GUARD.replace('    sees: none', '    sees: none\n    lead: true')}\n`,
-      'extra.md': `---
-id: extra
-role: 旁听
+      table: FINAL_TABLE,
+      seats: {
+        'uther.md': UTHER,
+        'grom.md': `---
+id: grom
+role: 门店读者视角
 enabled: false
-seat:
-  phase: [review]
 ---
+一次只说一句。
 `
+      }
     })
     const loaded = await loadRoundtable({ configDir: dir })
-    expect(loaded.phases[1]!.seats).toEqual(['guard'])
+    expect(loaded.table.title).toBe('文章审核圆桌')
+    expect(loaded.seats.map(seat => seat.id)).toEqual(['grom', 'uther'])
+    expect([
+      ...loaded.byId.keys()
+    ]).toEqual(['uther'])
+    expect(loaded.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/)
   })
 
-  it('changes the fingerprint only when rules change', async () => {
-    const dir = await makeConfig({ 'table.md': TABLE, 'editor.md': EDITOR, 'guard.md': GUARD })
-    const first = await loadRoundtable({ configDir: dir })
-    const second = await loadRoundtable({ configDir: dir })
-    expect(first.fingerprint).toBe(second.fingerprint)
-    expect(first.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/)
+  it('reports a missing directory, a missing table and a missing seats folder', async () => {
+    const missing = join(await makeConfig({ table: FINAL_TABLE, seats: {} }), 'nope')
+    await expect(loadRoundtable({ configDir: missing })).rejects.toThrow(/not found/)
 
-    await writeFile(join(dir, 'seats', 'guard.md'), `${GUARD}\n补充一句。\n`, 'utf8')
-    const third = await loadRoundtable({ configDir: dir })
-    expect(third.fingerprint).not.toBe(first.fingerprint)
+    const noTable = await makeConfig({ table: FINAL_TABLE, seats: {} })
+    const { rm } = await import('node:fs/promises')
+    await rm(join(noTable, 'table.md'))
+    await expect(loadRoundtable({ configDir: noTable })).rejects.toThrow(/Missing table\.md/)
+
+    const noSeats = await makeConfig({ table: FINAL_TABLE, seats: {} })
+    await expect(loadRoundtable({ configDir: noSeats })).rejects.toThrow(/No seat files/)
   })
 
-  it('orders seats in a phase by priority then id', async () => {
-    const table = `---
-phases:
-  - id: discuss
----
-`
+  it('rejects duplicate ids naming both files', async () => {
     const dir = await makeConfig({
-      'table.md': table,
-      'a.md': 'id: b-seat\nrole: 乙\nseat:\n  priority: 1\n',
-      'b.md': 'id: a-seat\nrole: 甲\nseat:\n  priority: 1\n',
-      'c.md': 'id: c-seat\nrole: 丙\nseat:\n  priority: 5\n'
+      table: FINAL_TABLE,
+      seats: {
+        'a.md': UTHER,
+        'b.md': UTHER
+      }
+    })
+    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/Duplicate seat id "uther" in a\.md and b\.md/)
+  })
+
+  it('rejects a table with no seat left to attend', async () => {
+    const dir = await makeConfig({
+      table: FINAL_TABLE,
+      seats: {
+        'uther.md': UTHER.replace('  output: json\n', '  output: json\n').replace('\nidentity:', '\nenabled: false\n\nidentity:')
+      }
+    })
+    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/Every seat is disabled/)
+  })
+
+  it('wraps seat, table and frontmatter errors as config errors', async () => {
+    const badSeat = await makeConfig({
+      table: FINAL_TABLE,
+      seats: {
+        'bad.md': '---\nrole: 无 id\n---'
+      }
+    })
+    await expect(loadRoundtable({ configDir: badSeat })).rejects.toThrow(RoundtableConfigError)
+
+    const badTable = await makeConfig({
+      table: '---\ndurationMs: nope\n---',
+      seats: { 'u.md': UTHER }
+    })
+    await expect(loadRoundtable({ configDir: badTable })).rejects.toThrow(RoundtableConfigError)
+
+    const badYaml = await makeConfig({
+      table: '---\ntitle: [unclosed\n---',
+      seats: { 'u.md': UTHER }
+    })
+    await expect(loadRoundtable({ configDir: badYaml })).rejects.toThrow(RoundtableConfigError)
+  })
+
+  it('includes ignored seats in the fingerprint so toggling one changes it', async () => {
+    const table = '---\ntitle: 指纹\n---'
+    const dir = await makeConfig({
+      table,
+      seats: {
+        'a.md': '---\nid: a\nrole: 甲\n---\n甲。',
+        'b.md': '---\nid: b\nrole: 乙\n---\n乙。'
+      }
+    })
+    const before = await loadRoundtable({ configDir: dir })
+    await writeFile(join(dir, 'seats', 'b.md'), '---\nid: b\nrole: 乙\nenabled: false\n---\n乙。', 'utf8')
+    const after = await loadRoundtable({ configDir: dir })
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+    expect(after.byId.has('b')).toBe(false)
+  })
+
+  it('changes the fingerprint when the table changes', async () => {
+    const dir = await makeConfig({
+      table: '---\ntitle: 一个名字\n---',
+      seats: { 'u.md': UTHER }
+    })
+    const before = await loadRoundtable({ configDir: dir })
+    await writeFile(join(dir, 'table.md'), '---\ntitle: 另一个名字\n---', 'utf8')
+    const after = await loadRoundtable({ configDir: dir })
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+  })
+
+  it('checks without touching a model or the environment', async () => {
+    const dir = await makeConfig({
+      table: FINAL_TABLE,
+      seats: { 'uther.md': UTHER }
+    })
+    const loaded = await checkRoundtable({ configDir: dir })
+    expect(loaded.byId.size).toBe(1)
+  })
+
+  it('orders seats by file name regardless of locale', async () => {
+    const dir = await makeConfig({
+      table: '---\ntitle: 排序\n---',
+      seats: {
+        '02-b.md': '---\nid: b\nrole: 乙\n---\n乙。',
+        '01-a.md': '---\nid: a\nrole: 甲\n---\n甲。'
+      }
     })
     const loaded = await loadRoundtable({ configDir: dir })
-    expect(loaded.phases[0]!.seats).toEqual(['a-seat', 'b-seat', 'c-seat'])
+    expect(loaded.seats.map(seat => seat.id)).toEqual(['a', 'b'])
   })
 
-  it('reads a per-table seat timeout', async () => {
-    const table = `---
-timeoutMs: 180000
-phases:
-  - id: propose
-    seats: [editor]
----
-`
-    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR })
-    const loaded = await loadRoundtable({ configDir: dir })
-    expect(loaded.table.timeoutMs).toBe(180_000)
-  })
-
-  it('leaves the seat timeout undefined so the transport default applies', async () => {
-    const dir = await makeConfig({ 'table.md': TABLE, 'editor.md': EDITOR, 'guard.md': GUARD })
-    const loaded = await loadRoundtable({ configDir: dir })
-    expect(loaded.table.timeoutMs).toBeUndefined()
-  })
-
-  it('rejects a seat timeout that cannot bound one call', async () => {
-    for (const bad of ['999', '3600001', '1.5']) {
-      const table = `---
-timeoutMs: ${bad}
-phases:
-  - id: propose
-    seats: [editor]
----
-`
-      const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR })
-      await expect(loadRoundtable({ configDir: dir })).rejects.toBeInstanceOf(RoundtableConfigError)
-    }
+  it('rejects a table.md that is a directory', async () => {
+    const dir = await makeConfig({
+      table: '---\ntitle: x\n---',
+      seats: { 'u.md': UTHER }
+    })
+    const { rm } = await import('node:fs/promises')
+    await rm(join(dir, 'table.md'))
+    await mkdir(join(dir, 'table.md'))
+    await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/not a file/)
   })
 })

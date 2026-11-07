@@ -1,143 +1,206 @@
 import type { Statement } from '../src/prompt'
-import type { Seat, Sees } from '../src/seat'
+import type { Seat } from '../src/seat'
 import { describe, expect, it } from 'vitest'
-import { buildUserPrompt, defaultPhaseInstruction, visibleStatements } from '../src/prompt'
+import { readFrontmatter } from '../src/frontmatter'
+import { buildUserPrompt, verdictInstruction, visibleStatements } from '../src/prompt'
+import { parseSeat } from '../src/seat'
 
-function seat(id: string, sees: Sees): Seat {
-  return {
-    id,
-    role: id,
-    enabled: true,
-    identity: { name: id },
-    persona: { personality: [] },
-    seat: {
-      phase: [],
-      sees,
-      canPropose: false,
-      canVeto: false,
-      lead: false,
-      weight: 1,
-      priority: 99,
-      fallback: 'skip',
-      output: 'text'
-    },
-    body: '',
-    source: `${id}.md`
-  }
+function seat(source: string): Seat {
+  return parseSeat(readFrontmatter(source, 'f.md'), 'f.md')
 }
 
-function statement(seatId: string, content = seatId): Statement {
+const OPEN = seat(`---
+id: grom
+role: 门店读者视角
+identity:
+  name: 格罗姆
+---`)
+
+const BLIND = seat(`---
+id: guard
+role: 事实审核
+identity:
+  name: 周慎
+seat:
+  sees: none
+  output: json
+---`)
+
+function statement(overrides: Partial<Statement>): Statement {
   return {
-    seat: seatId,
-    name: seatId,
-    role: seatId,
-    phase: 'propose',
+    seat: 'jaina',
+    name: '吉安娜',
+    role: '品牌与表达',
+    at: '2026-11-06T08:00:11+08:00',
     status: 'completed',
-    content
+    content: '开头太平，读者会划走。',
+    ...overrides
   }
 }
+
+const POOL: Statement[] = [
+  statement({
+    seat: 'grom',
+    name: '格罗姆',
+    role: '门店读者视角',
+    content: '这个方案我们店做不到'
+  }),
+  statement({
+    seat: 'jaina',
+    name: '吉安娜',
+    role: '品牌与表达',
+    content: '开头太平，读者会划走'
+  }),
+  statement({
+    seat: 'medivh',
+    name: '麦迪文',
+    role: '事实核查',
+    status: 'failed',
+    content: '',
+    error: 'network: boom'
+  }),
+  statement({
+    seat: 'grom',
+    name: '格罗姆',
+    role: '门店读者视角',
+    content: '不过第三个动作可以试'
+  })
+]
 
 describe('visibleStatements', () => {
-  const statements = [
-    statement('a'),
-    statement('b'),
-    statement('lead')
-  ]
-  const leads = new Set(['lead'])
-
-  it('shows every other statement when sees is all', () => {
-    const visible = visibleStatements(seat('viewer', 'all'), statements, leads)
-    expect(visible.map(item => item.seat)).toEqual(['a', 'b', 'lead'])
+  it('shows the whole pool to a seat that hears everyone', () => {
+    expect(visibleStatements(OPEN, POOL).map(item => item.content)).toEqual([
+      '这个方案我们店做不到',
+      '开头太平，读者会划走',
+      '不过第三个动作可以试'
+    ])
   })
 
-  it('never shows a seat its own statement', () => {
-    const visible = visibleStatements(seat('a', 'all'), statements, leads)
-    expect(visible.map(item => item.seat)).toEqual(['b', 'lead'])
+  it('shows nothing to a seat that judges on its own', () => {
+    expect(visibleStatements(BLIND, POOL)).toEqual([])
   })
 
-  it('shows nothing when sees is none', () => {
-    expect(visibleStatements(seat('viewer', 'none'), statements, leads)).toEqual([])
-  })
-
-  it('shows only lead statements for lead-only', () => {
-    const visible = visibleStatements(seat('viewer', 'lead-only'), statements, leads)
-    expect(visible.map(item => item.seat)).toEqual(['lead'])
-  })
-
-  it('shows only the listed seats for an explicit list', () => {
-    const visible = visibleStatements(seat('viewer', ['a']), statements, leads)
-    expect(visible.map(item => item.seat)).toEqual(['a'])
-  })
-
-  it('still hides a seat from itself inside an explicit list', () => {
-    const visible = visibleStatements(seat('a', ['a', 'b']), statements, leads)
-    expect(visible.map(item => item.seat)).toEqual(['b'])
+  it('leaves failed statements out of what anyone hears', () => {
+    const contents = visibleStatements(OPEN, POOL).map(item => item.content)
+    expect(contents.some(text => text.includes('boom'))).toBe(false)
+    expect(visibleStatements(OPEN, POOL).some(item => item.status !== 'completed')).toBe(false)
   })
 })
 
 describe('buildUserPrompt', () => {
-  it('includes topic, context, phase instruction, prior statements and revision notes', () => {
+  it('labels the four blocks in the documented order', () => {
     const prompt = buildUserPrompt({
-      phaseId: 'propose',
-      topic: '要不要做会员积分互通',
-      context: ['材料一', '材料二'],
+      topic: '这篇《昨天的服务》能不能发',
+      brief: '刚通过机器审核，需要几个人从不同角度再过一遍。',
+      context: ['文章正文', '素材'],
       visible: [
-        {
-          ...statement('a', '我认为应该先验证'),
-          name: '甲',
-          role: '编辑'
-        }
-      ],
-      revisionNotes: ['审核：缺少数据支撑'],
-      phaseInstruction: '提出一个议题'
+        statement({})
+      ]
     })
-    expect(prompt).toContain('要不要做会员积分互通')
-    expect(prompt).toContain('1. 材料一')
-    expect(prompt).toContain('2. 材料二')
-    expect(prompt).toContain('提出一个议题')
-    expect(prompt).toContain('甲 · 编辑')
-    expect(prompt).toContain('我认为应该先验证')
-    expect(prompt).toContain('缺少数据支撑')
+    const order = [
+      '## 议题',
+      '## 背景',
+      '## 材料',
+      '## 前序发言',
+      '## 输出要求'
+    ]
+    const positions = order.map(heading => prompt.indexOf(heading))
+    expect(positions.every(index => index >= 0)).toBe(true)
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions)
+    expect(prompt).toContain('这篇《昨天的服务》能不能发')
+    expect(prompt).toContain('刚通过机器审核')
   })
 
-  it('omits sections that have no content', () => {
-    const prompt = buildUserPrompt({ phaseId: 'propose', context: [], visible: [] })
-    expect(prompt).not.toContain('## 本次议题')
-    expect(prompt).not.toContain('## 已知材料')
+  it('numbers the material so a seat can cite it', () => {
+    const prompt = buildUserPrompt({
+      topic: '问题',
+      context: ['文章正文', '素材'],
+      visible: []
+    })
+    expect(prompt).toContain('### 材料 1\n\n文章正文')
+    expect(prompt).toContain('### 材料 2\n\n素材')
+  })
+
+  it('omits optional blocks instead of leaving empty headings', () => {
+    const prompt = buildUserPrompt({ topic: '只有议题', context: [], visible: [] })
+    expect(prompt).toContain('## 议题\n\n只有议题')
+    expect(prompt).not.toContain('## 背景')
+    expect(prompt).not.toContain('## 材料')
     expect(prompt).not.toContain('## 前序发言')
     expect(prompt).not.toContain('## 上一轮的否决理由')
   })
 
-  it('renders structured output as JSON rather than raw text', () => {
+  it('shows a blind seat the topic but none of the discussion', () => {
     const prompt = buildUserPrompt({
-      phaseId: 'review',
+      topic: '文章能不能发',
+      brief: '机审已过',
+      context: ['文章正文'],
+      visible: visibleStatements(BLIND, POOL)
+    })
+    expect(prompt).toContain('文章能不能发')
+    expect(prompt).toContain('文章正文')
+    expect(prompt).not.toContain('## 前序发言')
+    expect(prompt).not.toContain('开头太平')
+  })
+
+  it('renders a statement with who said it, not which seat id it was', () => {
+    const prompt = buildUserPrompt({
+      topic: 'q',
       context: [],
       visible: [
-        {
-          ...statement('a', 'raw text'),
-          structured: { verdict: 'reject', reason: '缺证' }
-        }
+        statement({})
       ]
     })
-    expect(prompt).toContain('"verdict": "reject"')
-    expect(prompt).not.toContain('raw text')
+    expect(prompt).toContain('### 吉安娜 · 品牌与表达\n\n开头太平，读者会划走。')
+    expect(prompt).not.toContain('jaina')
+  })
+
+  it('says how many older statements were trimmed', () => {
+    const prompt = buildUserPrompt({
+      topic: 'q',
+      context: [],
+      visible: [
+        statement({})
+      ],
+      dropped: 3
+    })
+    expect(prompt).toContain('更早的 3 条发言已超出长度上限')
+  })
+
+  it('carries the previous round veto reasons to every seat', () => {
+    const prompt = buildUserPrompt({
+      topic: 'q',
+      context: [],
+      visible: visibleStatements(BLIND, POOL),
+      revisionNotes: ['乌瑟尔（合规与风险）：提到具体金额不能公开']
+    })
+    expect(prompt).toContain('## 上一轮的否决理由')
+    expect(prompt).toContain('提到具体金额不能公开')
   })
 })
 
-describe('defaultPhaseInstruction', () => {
-  it('describes the five conventional phases', () => {
-    for (const id of [
-      'propose',
-      'discuss',
-      'produce',
-      'review',
-      'converge'
-    ]) {
-      expect(defaultPhaseInstruction(id)).toBeTruthy()
-    }
+describe('verdictInstruction', () => {
+  it('asks for material and never for an approval', () => {
+    const text = verdictInstruction(seat(`---
+id: guard
+role: 审核
+seat:
+  output: json
+---`))
+    expect(text).toContain('"verdict":"pass|reject"')
+    expect(text).toContain('不要写 approved')
+    expect(text).not.toContain('你有否决权')
   })
 
-  it('returns undefined for a custom phase name', () => {
-    expect(defaultPhaseInstruction('custom')).toBeUndefined()
+  it('tells a veto holder that a veto needs a reason', () => {
+    const text = verdictInstruction(seat(`---
+id: guard
+role: 审核
+seat:
+  output: json
+  canVeto: true
+---`))
+    expect(text).toContain('你有否决权')
+    expect(text).toContain('没有理由的否决会被忽略')
   })
 })

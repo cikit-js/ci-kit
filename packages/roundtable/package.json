@@ -2,7 +2,7 @@
   "name": "@ci-kit/roundtable",
   "type": "module",
   "version": "0.3.1",
-  "description": "Seat-based orchestration that lets multiple AI roles discuss, produce and converge without a human-supplied agenda",
+  "description": "One timed discussion among AI seats that share a pool of statements, then a program-made verdict",
   "author": "imba97",
   "license": "MIT",
   "homepage": "https://github.com/cikit-js/ci-kit#readme",

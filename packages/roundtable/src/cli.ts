@@ -1,111 +1,269 @@
 #!/usr/bin/env node
 
+import type { RoundtableResult } from './index'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import process from 'node:process'
 import { cac } from 'cac'
 import pkg from '../package.json'
+import { writeExample } from './example'
 import { defaultOutDir, loadRoundtable, resumeRoundtable, RoundtableConfigError, runRoundtable } from './index'
+
+const DEFAULT_CONFIG = '.ci-kit/roundtable'
+const EXIT_CONFIG = 2
+const EXIT_REJECTED = 1
+const EXIT_PASSED = 0
 
 const cli = cac('ci-kit-roundtable')
 
-/** One log-safe line for failures; exit code 2 marks config or usage errors. */
-function reportError(error: unknown): never {
-  const message = error instanceof RoundtableConfigError
-    ? `config: ${error.message}`
-    : error instanceof Error
-      ? error.message
-      : String(error)
-  process.stderr.write(`ci-kit-roundtable: ${message}\n`)
-  process.exit(2)
+/** Usage errors are configuration errors: nothing could start. */
+class UsageError extends RoundtableConfigError {}
+
+/**
+ * One log-safe line for anything that stopped the command before a result
+ * existed. Business failure never lands here; it is a status, not a throw.
+ */
+function fail(error: unknown): never {
+  const message = error instanceof Error
+    ? error.message
+    : String(error)
+  const prefix = error instanceof RoundtableConfigError
+    ? 'config'
+    : 'error'
+  process.stderr.write(`ci-kit-roundtable: ${prefix}: ${message}\n`)
+  process.exitCode = EXIT_CONFIG
+  return undefined as never
+}
+
+function asList(value: string | string[] | undefined): string[] {
+  if (value === undefined || value === null) {
+    return []
+  }
+  return Array.isArray(value)
+    ? value
+    : [value]
+}
+
+/**
+ * A single-valued flag. cac hands back an array for a repeated flag, but
+ * `--config`, `--topic`, `--brief`, `--out` and `--resume` mean one value, so the
+ * last occurrence wins instead of being guessed at.
+ */
+function single(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value)
+    ? value.at(-1)
+    : value
+  const trimmed = raw?.trim()
+  return trimmed || undefined
+}
+
+/**
+ * `cac` camel-cases flag names (`--context-file` → `contextFile`). Reading a key
+ * that was never populated is silent, so a renamed flag would change the meeting
+ * without anyone noticing. Every accepted key is listed per subcommand; anything
+ * else that still carries a value is a usage error.
+ */
+function rejectUnknown(
+  command: string,
+  options: Record<string, unknown>,
+  accepted: readonly string[]
+): void {
+  for (const key of Object.keys(options)) {
+    if (key === '--' || accepted.includes(key)) {
+      continue
+    }
+    throw new UsageError(`unknown option for ${command}: --${key.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`)}`)
+  }
+}
+
+/** `42s` / `1m14s` / `1h02m`; whole minutes keep two-digit seconds so the shape stays one. */
+function formatElapsed(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.round(elapsedMs / 1000))
+  if (seconds < 60) {
+    return `${seconds}s`
+  }
+  if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60)
+    return `${minutes}m${String(seconds % 60).padStart(2, '0')}s`
+  }
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return `${hours}h${String(minutes).padStart(2, '0')}m`
+}
+
+/**
+ * Material flags, named exactly as `cac` reports them: `--context` arrives as
+ * `context`, `--context-file` as `contextFile`. Both collapse into one ordered
+ * list, so the seats see numbered items instead of a single blob.
+ */
+function collectContext(options: Record<string, string | string[] | undefined>): Promise<string[]> {
+  return materials(options.context, options.contextFile)
+}
+
+async function materials(
+  literals: string | string[] | undefined,
+  files: string | string[] | undefined
+): Promise<string[]> {
+  const context: string[] = []
+
+  for (const item of asList(literals)) {
+    const text = item.trim()
+    if (text) {
+      context.push(text)
+    }
+  }
+
+  for (const file of asList(files)) {
+    const path = resolve(file)
+    try {
+      context.push(await readFile(path, 'utf8'))
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new RoundtableConfigError(`--context-file not found: ${path}`)
+      }
+      throw new RoundtableConfigError(`--context-file unreadable: ${path} (${(error as Error).message})`)
+    }
+  }
+
+  return context
+}
+
+/** Flag keys exactly as `cac` reports them, one list per subcommand. */
+const RUN_FLAGS = [
+  'config',
+  'topic',
+  'brief',
+  'context',
+  'contextFile',
+  'out',
+  'resume'
+] as const
+const CHECK_FLAGS = ['config'] as const
+const INIT_FLAGS = ['force'] as const
+
+function summarize(result: RoundtableResult): string {
+  const { startedAt, finishedAt } = result.record
+  // A terminal record always carries both ends; the guard only covers a
+  // hand-edited record, where a missing end means "unknown elapsed".
+  const elapsed = finishedAt
+    ? new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+    : 0
+  return `roundtable: ${result.status} · ${result.used} calls · ${formatElapsed(elapsed)} · ${result.runDir}`
 }
 
 cli
-  .command('check', 'Validate table.md and seats without calling a model')
-  .option('--config <dir>', 'Roundtable directory', { default: '.ci-kit/roundtable' })
-  .action(async (options: Record<string, string | undefined>) => {
+  .command('run', 'Hold one meeting: all seats talk at once, then the program judges')
+  .option('--config <dir>', 'Roundtable directory', { default: DEFAULT_CONFIG })
+  .option('--topic <text>', 'What this meeting must answer (required)')
+  .option('--brief <text>', 'Why the meeting is being held')
+  .option('--context <text>', 'One material for the table; repeatable')
+  .option('--context-file <path>', 'Read one material from a file; repeatable')
+  .option('--out <dir>', 'Directory for run folders', {
+    default: defaultOutDir()
+  })
+  .option('--resume <run-dir>', 'Continue an interrupted run from its state.json')
+  .action(async (options: Record<string, string | string[] | undefined>) => {
     try {
-      const loaded = await loadRoundtable({ configDir: options.config ?? '.ci-kit/roundtable' })
-      const phases = loaded.phases.map(phase => `${phase.id}(${phase.seats.join(', ')})`).join(' → ')
-      process.stdout.write(`roundtable: ok · ${loaded.seats.length} seats · ${loaded.phases.length} phases\n`)
-      process.stdout.write(`  ${phases}\n`)
-      process.stdout.write(`  title: ${loaded.table.title}\n`)
+      rejectUnknown('run', options, RUN_FLAGS)
+      const topic = single(options.topic)
+      if (!topic) {
+        throw new UsageError('--topic is required: a meeting without a question has nothing to answer')
+      }
+
+      const configDir = single(options.config) ?? DEFAULT_CONFIG
+      const brief = single(options.brief)
+      const context = await collectContext(options)
+      const onProgress = (line: string) => {
+        process.stderr.write(`${line}\n`)
+      }
+      const shared = {
+        configDir,
+        topic,
+        ...brief
+          ? { brief }
+          : {},
+        ...context.length
+          ? { context }
+          : {},
+        onProgress
+      }
+
+      const resumeDir = single(options.resume)
+      const result = resumeDir
+        ? await resumeRoundtable({ ...shared, runDir: resumeDir })
+        : await runRoundtable({ ...shared, outDir: single(options.out) ?? defaultOutDir() })
+
+      // Exactly one summary line: stdout when passed, stderr otherwise, so a
+      // pipeline only sees a passing meeting as output.
+      const line = summarize(result)
+      if (result.status === 'passed') {
+        process.stdout.write(`${line}\n`)
+      }
+      else {
+        process.stderr.write(`${line}\n`)
+      }
+      process.exitCode = result.status === 'passed'
+        ? EXIT_PASSED
+        : EXIT_REJECTED
     }
     catch (error) {
-      reportError(error)
+      fail(error)
     }
   })
 
 cli
-  .command('run', 'Run one meeting')
-  .option('--config <dir>', 'Roundtable directory', { default: '.ci-kit/roundtable' })
-  .option('--out <dir>', 'Directory for run folders', {
-    default: defaultOutDir()
-  })
-  .option('--topic <text>', 'Optional topic override; seats propose their own by default')
-  .option('--context <text>', 'Material for the seats, repeatable')
-  .option('--resume <dir>', 'Continue an interrupted run directory')
+  .command('check', 'Validate table.md and seats without paying for a call')
+  .option('--config <dir>', 'Roundtable directory', { default: DEFAULT_CONFIG })
   .action(async (options: Record<string, string | string[] | undefined>) => {
-    const rawContext = options.context
-    const context = rawContext === undefined
-      ? []
-      : Array.isArray(rawContext)
-        ? rawContext
-        : [rawContext]
     try {
-      const common = {
-        configDir: String(options.config ?? '.ci-kit/roundtable'),
-        topic: options.topic === undefined
-          ? undefined
-          : String(options.topic),
-        context,
-        onProgress: (line: string) => process.stderr.write(`${line}\n`)
-      }
-      const result = options.resume === undefined
-        ? await runRoundtable({
-            ...common,
-            outDir: options.out === undefined
-              ? undefined
-              : String(options.out)
-          })
-        : await resumeRoundtable({
-            ...common,
-            runDir: String(options.resume)
-          })
-      const total = result.budgetTotal === undefined
-        ? 'unlimited'
-        : String(result.budgetTotal)
-      const summary = `roundtable: ${result.status} · ${result.record.attempts} attempt · ${result.used}/${total} calls · ${result.runDir}`
-      if (result.status === 'passed') {
-        process.stdout.write(`${summary}\n`)
-      }
-      else {
-        process.stderr.write(`${summary}\n`)
-      }
-      process.exitCode = result.status === 'passed'
-        ? 0
-        : 1
+      rejectUnknown('check', options, CHECK_FLAGS)
+      const configDir = single(options.config) ?? DEFAULT_CONFIG
+      const loaded = await loadRoundtable({ configDir })
+      const { table, seats } = loaded
+      const seatsText = `${seats.length} seat${seats.length === 1
+        ? ''
+        : 's'}`
+      process.stdout.write(
+        `roundtable: ok · ${seatsText} · duration ${formatElapsed(table.durationMs)} · maxPoolTokens ${table.maxPoolTokens} · threshold ${table.threshold}\n`
+      )
+      process.stdout.write(`  title: ${table.title}\n`)
+      const listing = seats
+        .map(seat => `${seat.id}(${seat.role})`)
+        .join(', ')
+      process.stdout.write(`  seats: ${listing}\n`)
     }
     catch (error) {
-      reportError(error)
+      fail(error)
     }
   })
 
 cli
   .command('init [dir]', 'Write an example roundtable you can edit')
-  .option('--force', 'Overwrite existing files')
+  .option('--force', 'Overwrite files that already exist')
   .action(async (dir: string | undefined, options: Record<string, boolean | undefined>) => {
     try {
-      const { writeExample } = await import('./example')
-      const written = await writeExample(dir ?? '.ci-kit/roundtable', options.force === true)
-      process.stdout.write(`roundtable: wrote ${written.length} files\n`)
+      rejectUnknown('init', options, INIT_FLAGS)
+      const target = single(dir) ?? DEFAULT_CONFIG
+      const written = await writeExample(target, options.force === true)
+      process.stdout.write(`roundtable: wrote ${written.length} files to ${resolve(target)}\n`)
       for (const path of written) {
         process.stdout.write(`  ${path}\n`)
       }
+      process.stdout.write(`next: ci-kit-roundtable check --config ${target}\n`)
     }
     catch (error) {
-      reportError(error)
+      fail(error)
     }
   })
 
 cli.help()
 cli.version(pkg.version)
-cli.parse()
+// cac throws on an unknown flag instead of reporting it; keep its message but
+// route it through the same one-line, exit-2 contract as every other usage error.
+try {
+  cli.parse()
+}
+catch (error) {
+  fail(error)
+}

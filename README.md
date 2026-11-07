@@ -13,7 +13,7 @@ npx @ci-kit/ai image --prompt "flat illustration, no text" --size 2560x1440 --ou
 npx @ci-kit/changelog --from v1.0.4 --out notes.md
 npx @ci-kit/roundtable init .ci-kit/roundtable
 npx @ci-kit/roundtable check --config .ci-kit/roundtable
-npx @ci-kit/roundtable run --config .ci-kit/roundtable --out roundtable-out
+npx @ci-kit/roundtable run --config .ci-kit/roundtable --topic "这篇能不能发" --out roundtable-out
 ```
 
 ## Packages
@@ -27,7 +27,7 @@ npx @ci-kit/roundtable run --config .ci-kit/roundtable --out roundtable-out
 | `@ci-kit/env` | Read `.env`, export without breaking JSON values, redact |
 | `@ci-kit/release` | Semver bump, beta/production tag naming, build numbers |
 | `@ci-kit/http` | fetch with timeout, retry and typed errors |
-| `@ci-kit/roundtable` | Seat-based orchestration: multiple AI roles discuss, produce and converge without a human-supplied agenda |
+| `@ci-kit/roundtable` | One timed discussion among AI seats that share a pool of statements, then a program-made verdict |
 
 ## AI providers
 
