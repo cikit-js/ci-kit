@@ -428,7 +428,7 @@ seat:
       callText,
       now: clock.now
     })
-    expect(calls[0]!.json).toBe(true)
+    expect(calls[0]!.schema).toMatchObject({ type: 'object' })
     expect(result.statements[0]!.status).toBe('failed')
     expect(result.statements[0]!.error).toContain('JSON')
     expect(result.statements[0]!.verdict).toBeUndefined()

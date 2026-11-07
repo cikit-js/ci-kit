@@ -2,7 +2,7 @@ import type { Statement } from '../src/prompt'
 import type { Seat } from '../src/seat'
 import { describe, expect, it } from 'vitest'
 import { readFrontmatter } from '../src/frontmatter'
-import { buildUserPrompt, verdictInstruction, visibleStatements } from '../src/prompt'
+import { buildUserPrompt, VERDICT_SCHEMA, verdictInstruction, visibleStatements } from '../src/prompt'
 import { parseSeat } from '../src/seat'
 
 function seat(source: string): Seat {
@@ -187,9 +187,34 @@ role: 审核
 seat:
   output: json
 ---`))
-    expect(text).toContain('"verdict":"pass|reject"')
-    expect(text).toContain('不要写 approved')
+    // Meaning only: who decides. The field shape is the schema's job.
+    expect(text).toContain('由程序')
+    expect(text).toContain('你只提供判断')
+    expect(text).not.toContain('"verdict"')
+    expect(text).not.toContain('JSON')
     expect(text).not.toContain('你有否决权')
+  })
+
+  it('keeps the reply shape out of the prompt entirely', () => {
+    const text = verdictInstruction(seat(`---
+id: guard
+role: 审核
+seat:
+  output: json
+  canVeto: true
+---`))
+    // A schema describes the fields; prose that repeats them drifts from it.
+    expect(text).not.toContain('"verdict"')
+    expect(text).not.toContain('"reason"')
+    expect(text).not.toContain('approved"')
+  })
+
+  it('states the output contract as a schema, not as prose', () => {
+    expect(VERDICT_SCHEMA.required).toEqual(['verdict', 'reason'])
+    expect(VERDICT_SCHEMA.properties.verdict.enum).toEqual(['pass', 'reject'])
+    // The decision is the program's, so there is no field for it.
+    expect(Object.keys(VERDICT_SCHEMA.properties)).not.toContain('approved')
+    expect(VERDICT_SCHEMA.additionalProperties).toBe(false)
   })
 
   it('tells a veto holder that a veto needs a reason', () => {

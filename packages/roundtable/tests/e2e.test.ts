@@ -89,7 +89,7 @@ function seatReplies(
           : reply
       }
     }
-    return call.json ? pass : '发言'
+    return call.schema ? pass : '发言'
   }
 }
 
@@ -205,7 +205,7 @@ describe('runRoundtable', () => {
     })
     expect(calls[0]!.system).toContain('你是格罗姆')
     expect(calls[0]!.system).toContain('格罗姆。')
-    expect(calls[0]!.json).toBe(true)
+    expect(calls[0]!.schema).toMatchObject({ type: 'object' })
   })
 
   it('decides with the weighted votes, not with the prose', async () => {

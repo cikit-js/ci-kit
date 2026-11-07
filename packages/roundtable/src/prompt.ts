@@ -1,3 +1,4 @@
+import type { JsonSchema } from '@ci-kit/ai'
 import type { Seat } from './seat'
 
 /** One line of the pool: a seat's single statement, in the order it landed. */
@@ -127,20 +128,58 @@ export function buildUserPrompt(input: PromptInput): string {
 }
 
 /**
- * Instruction for a voting seat, appended to its user message.
+ * The shape a voting seat's reply must take.
  *
- * The seat supplies material — a verdict, a reason, issues — and the program
- * decides. Asking for `approved` would put the decision in a place nobody can
- * audit later, so it is never requested.
+ * This is the contract, and it lives here rather than in the prompt: the same
+ * schema is sent as the provider's output format and is what `readVerdict`
+ * expects to parse. Describing fields in prose let a model paraphrase them and
+ * produced replies the parser could not read.
+ *
+ * `verdict` has no `approved`: whether the table passes is computed from votes,
+ * so a seat that could state an outcome would put the decision somewhere nobody
+ * can audit later.
+ */
+export const VERDICT_SCHEMA = {
+  type: 'object',
+  properties: {
+    verdict: {
+      type: 'string',
+      enum: ['pass', 'reject'],
+      description: '你的判断：pass 表示可以继续，reject 表示有问题'
+    },
+    reason: {
+      type: 'string',
+      description: '一句话理由。否决必须填，否则否决无效'
+    },
+    score: {
+      type: 'number',
+      description: '你对这份材料的自评，0 到 1'
+    },
+    issues: {
+      type: 'array',
+      description: '需要作者处理的具体问题，每条一句',
+      items: {
+        type: 'string'
+      }
+    }
+  },
+  required: ['verdict', 'reason'],
+  additionalProperties: false
+} satisfies JsonSchema
+
+/**
+ * What a voting seat is told about its judgement, beyond the persona.
+ *
+ * Only meaning is stated here — who decides, and what a veto costs. The field
+ * shape is enforced by {@link VERDICT_SCHEMA}, not by prose the model may drift
+ * from.
  */
 export function verdictInstruction(seat: Seat): string {
-  const veto = seat.seat.canVeto
-    ? '你有否决权：否决必须写明理由，没有理由的否决会被忽略。'
-    : ''
-  return [
-    '除这句话，还要给出你的判断，用 JSON 对象返回：',
-    '{"verdict":"pass|reject","reason":"一句话理由","score":0到1,"issues":["…"]}',
-    'verdict 由你给出，是否通过由程序按权重与阈值计算；不要写 approved。',
-    veto
-  ].filter(Boolean).join('\n')
+  const lines = [
+    '说完这句话，再给出你的判断。是否通过由程序按权重与阈值计算，你只提供判断和理由。'
+  ]
+  if (seat.seat.canVeto) {
+    lines.push('你有否决权：否决必须写明理由，没有理由的否决会被忽略。')
+  }
+  return lines.join('\n')
 }

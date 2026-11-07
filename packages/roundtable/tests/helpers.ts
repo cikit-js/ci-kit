@@ -28,7 +28,8 @@ export async function cleanupScratch(): Promise<void> {
 export interface Call {
   prompt: string
   system?: string
-  json?: boolean
+  /** The output contract the seat asked for; present for voting seats. */
+  schema?: unknown
   maxTokens?: number
   retries?: number
   model?: string
@@ -52,14 +53,14 @@ export function stubText(options: StubOptions): { callText: TextCaller, calls: C
   const callText = (async (input: {
     prompt: string
     system?: string
-    json?: boolean
+    schema?: unknown
     maxTokens?: number
     retries?: number
   }) => {
     const call: Call = {
       prompt: input.prompt,
       system: input.system,
-      json: input.json,
+      schema: input.schema,
       maxTokens: input.maxTokens,
       retries: input.retries
     }

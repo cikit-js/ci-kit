@@ -3,7 +3,7 @@ import type { ArtifactRef, Statement } from './prompt'
 import type { Seat } from './seat'
 import type { Vote } from './verdict'
 import { text as aiText, isAiError } from '@ci-kit/ai'
-import { buildUserPrompt, verdictInstruction, visibleStatements } from './prompt'
+import { buildUserPrompt, VERDICT_SCHEMA, verdictInstruction, visibleStatements } from './prompt'
 import { renderSeatSystemPrompt } from './seat'
 import { readVerdict, vetoReason } from './verdict'
 
@@ -173,7 +173,12 @@ async function callSeat(seat: Seat, prompt: string, options: EngineOptions): Pro
         ? `${prompt}\n\n${verdictInstruction(seat)}`
         : prompt,
       system: renderSeatSystemPrompt(seat),
-      json: wantJson,
+      // A voting seat's reply is constrained by the schema, not by a prompt that
+      // describes JSON: the field names live in code where the parser reads them.
+      // `output: text` seats stay unconstrained and simply speak.
+      ...wantJson
+        ? { schema: VERDICT_SCHEMA }
+        : {},
       maxTokens: seat.seat.maxTokens,
       retries: seat.seat.fallback === 'retry'
         ? undefined
