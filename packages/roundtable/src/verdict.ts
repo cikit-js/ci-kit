@@ -1,74 +1,70 @@
 import type { Seat } from './seat'
-import type { Phase, Table } from './table'
+import type { Table } from './table'
 
-/** What a seat is allowed to return; the seat never says "approved". */
+/**
+ * What a seat is allowed to return.
+ *
+ * There is no `approved` field on purpose: a seat supplies material, the program
+ * decides. Keeping that boundary means the same record re-reads to the same
+ * conclusion years later.
+ */
 export interface SeatVerdict {
-  /** `pass` / `reject`; only veto-capable seats get to veto, others just vote. */
   verdict?: 'pass' | 'reject'
+  /** Self-reported quality score, 0–1. Recorded, not used for the decision. */
   score?: number
   issues?: string[]
   suggestions?: string[]
-  /** Reason attached to a veto. A veto without one is ignored. */
+  /** Required for a veto. A veto without one is ignored. */
   reason?: string
 }
 
+/** One seat's final word in a discussion, after the last-statement rule. */
 export interface Vote {
   seatId: string
   weight: number
-  /** `undefined` when the seat failed or was skipped, so it cannot count. */
-  vote?: 'pass' | 'reject'
-  /** Set when a veto-capable seat wrote `reject` with a reason. */
-  veto?: boolean
-  /** Whether the seat actually wrote text for its reason. */
-  hasReason?: boolean
+  vote: 'pass' | 'reject'
+  /** True when this seat holds `canVeto` and the seat wrote a reason. */
+  veto: boolean
 }
 
 export interface Judgement {
   passed: boolean
-  /** Seats whose valid veto blocked the phase. */
+  /** Seats whose valid veto blocked the meeting. */
   vetoed: string[]
-  /** Seats that voted reject without a valid veto. */
+  /** Every seat that voted reject without a valid veto. */
   rejected: string[]
-  /** Weighted pass ratio over seats that actually voted. */
-  score: number
   /** Seats whose veto had no reason and was therefore ignored. */
   invalidVetoes: string[]
+  /** Weighted pass ratio over seats that actually voted, 0–1. */
+  score: number
+  /** Weighted pass weight and total vote weight, for the record's sake. */
+  weights: { pass: number, total: number }
+  /** Seats that never produced a valid vote, so they are not in the denominator. */
+  absent: string[]
 }
 
 /**
- * Turn per-seat material into one phase verdict.
+ * Turn per-seat material into the meeting's verdict.
  *
- * Model output is material, never the decision: a seat supplies a vote and an
- * optional veto, and this function alone decides. That keeps a record
- * re-readable years later with the same result.
+ * Rules, in contract order:
+ * 1. Any valid veto from a `canVeto` seat blocks the meeting.
+ * 2. Otherwise the weighted pass share must reach `threshold`.
+ * 3. Everything else blocks.
  *
- * Rules, in order:
- * 1. A veto from a `canVeto` seat in a `vetoable` phase blocks it, but only
- *    when the seat wrote a reason.
- * 2. Otherwise the weighted pass ratio must reach `threshold`.
- * 3. Seats that failed or were skipped are excluded from the denominator:
- *    absence is not opposition.
+ * A seat that failed or was skipped is not counted at all: absence is not
+ * opposition, and a floor of "0% because half the table died" would be a lie
+ * about what the meeting decided.
  */
-export function judgePhase(
-  phase: Phase,
-  seats: Seat[],
-  votes: Vote[],
-  table: Table
-): Judgement {
+export function judgeMeeting(seats: Seat[], votes: Vote[], table: Table): Judgement {
   const byId = new Map(seats.map(seat => [seat.id, seat]))
   const vetoed: string[] = []
   const rejected: string[] = []
-  const invalidVetoes: string[] = []
   let passWeight = 0
   let voteWeight = 0
 
-  // A veto only counts where the table opened the phase for it; leaving the
-  // flag inert elsewhere is safer than silently granting power nobody scoped.
-  const vetoEnabled = phase.vetoable
-
   for (const vote of votes) {
     const seat = byId.get(vote.seatId)
-    if (!seat || vote.vote === undefined) {
+    if (!seat || !seat.enabled) {
       continue
     }
     voteWeight += vote.weight
@@ -76,37 +72,41 @@ export function judgePhase(
       passWeight += vote.weight
       continue
     }
-
     rejected.push(seat.id)
-    if (!vote.veto) {
-      continue
+    if (vote.veto) {
+      vetoed.push(seat.id)
     }
-    if (!vetoEnabled || !seat.seat.canVeto) {
-      continue
-    }
-    // The design forbids silent rejection: a model that can say "no" for free
-    // will occasionally do exactly that.
-    if (!vote.hasReason) {
-      invalidVetoes.push(seat.id)
-      continue
-    }
-    vetoed.push(seat.id)
   }
+
+  const voted = new Set(votes.map(vote => vote.seatId))
+  const absent = seats.filter(seat => seat.enabled && !voted.has(seat.id)).map(seat => seat.id)
 
   const score = voteWeight === 0
     ? 0
     : passWeight / voteWeight
-  const passed = vetoed.length === 0 && voteWeight > 0 && score >= table.threshold
+  // `threshold: 0` must not turn a unanimous rejection into a pass: 0/1 = 0 and
+  // 0 >= 0, so the arithmetic alone would say yes to a table that said no. At
+  // least one vote of approval is always required; the threshold sets how much,
+  // from "one is enough" upward.
+  const passed = vetoed.length === 0 && passWeight > 0 && score >= table.threshold
+
   return {
     passed,
     vetoed,
     rejected,
+    invalidVetoes: [],
     score,
-    invalidVetoes
+    weights: { pass: passWeight, total: voteWeight },
+    absent
   }
 }
 
-/** Read a seat verdict from parsed JSON, tolerating absent fields. */
+/**
+ * Read a seat verdict from parsed JSON, tolerating absent fields.
+ *
+ * Anything that is not an object is no verdict at all; inferring a decision from
+ * prose would let phrasing decide an outcome.
+ */
 export function readVerdict(raw: unknown): SeatVerdict {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return {}
@@ -115,7 +115,7 @@ export function readVerdict(raw: unknown): SeatVerdict {
   const verdict = source.verdict === 'pass' || source.verdict === 'reject'
     ? source.verdict
     : undefined
-  const score = typeof source.score === 'number' && Number.isFinite(source.score)
+  const score = typeof source.score === 'number' && Number.isFinite(source.score) && source.score >= 0 && source.score <= 1
     ? source.score
     : undefined
   const strings = (value: unknown): string[] | undefined => {
@@ -128,11 +128,42 @@ export function readVerdict(raw: unknown): SeatVerdict {
   const reason = typeof source.reason === 'string' && source.reason.trim()
     ? source.reason.trim()
     : undefined
+  const issues = strings(source.issues)
+  const suggestions = strings(source.suggestions)
   return {
     verdict,
     score,
-    issues: strings(source.issues),
-    suggestions: strings(source.suggestions),
+    issues,
+    suggestions,
     reason
   }
+}
+
+/**
+ * The reason a veto carries, preferring an explicit reason and falling back to
+ * the issues list — a veto backed by three concrete issues does state its case.
+ */
+export function vetoReason(verdict: SeatVerdict, content: string): string {
+  if (verdict.reason) {
+    return verdict.reason
+  }
+  if (verdict.issues?.length) {
+    return verdict.issues.slice(0, 5).join('；')
+  }
+  // A plain-text seat may still write `否决：理由`; the text after the marker is
+  // the reason. A bare `否决` states no reason, so the veto cannot count. The
+  // marker can start any line, not only the first one.
+  // Two anchored patterns rather than one optional group: `\s*.*` in a single
+  // expression backtracks polynomially on a long line of spaces.
+  const marked = /^(?:否决|不通过|reject)[ \t]*[：:]/i
+  const empty = /^(?:否决|不通过|reject)[ \t]*[：:][ \t]*$/i
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim()
+    if (marked.test(trimmed)) {
+      return empty.test(trimmed)
+        ? ''
+        : trimmed.replace(marked, '').trim()
+    }
+  }
+  return ''
 }

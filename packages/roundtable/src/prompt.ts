@@ -1,18 +1,22 @@
 import type { Seat } from './seat'
 
-/** One seat's turn in a phase, as seen by later seats. */
+/** One line of the pool: a seat's single statement, in the order it landed. */
 export interface Statement {
   seat: string
   name: string
   role: string
-  phase: string
+  /** ISO timestamp of the moment it entered the pool. */
+  at: string
   status: StatementStatus
   content: string
+  /** The seat's structured judgement, when `output: json` parsed cleanly. */
+  verdict?: 'pass' | 'reject'
+  /** Everything else the seat returned in its JSON, kept for review. */
   structured?: unknown
   durationMs?: number
   model?: string
   usage?: { input: number, output: number }
-  /** One log-safe line when the seat failed. */
+  /** One log-safe line when the seat failed. Never the provider payload. */
   error?: string
   artifacts?: ArtifactRef[]
 }
@@ -21,7 +25,6 @@ export type StatementStatus
   = | 'completed'
     | 'skipped'
     | 'failed'
-    | 'budget-exhausted'
     | 'invalid-veto'
 
 export interface ArtifactRef {
@@ -30,108 +33,114 @@ export interface ArtifactRef {
 }
 
 /**
- * Which earlier statements a seat may see.
+ * Which pool entries a seat may hear.
  *
  * This is the mechanism that keeps discussion from collapsing into an echo
- * chamber, and the reason an independent reviewer stays independent: with
- * `none` it receives only the material and its own instructions, never the
- * author's self-justification.
+ * chamber: with `none` a seat receives the topic, brief and material — never
+ * anyone else's opinion, including its own.
+ *
+ * Only `completed` entries are visible. A failed or skipped seat left a trace in
+ * the record, but the meeting does not put error lines on the table.
  */
-export function visibleStatements(
-  viewer: Seat,
-  statements: Statement[],
-  leadIds: Set<string>
-): Statement[] {
-  const { sees } = viewer.seat
-  if (sees === 'none') {
+export function visibleStatements(viewer: Seat, pool: Statement[]): Statement[] {
+  if (viewer.seat.sees === 'none') {
     return []
   }
-  if (sees === 'all') {
-    return statements.filter(statement => statement.seat !== viewer.id)
-  }
-  if (sees === 'lead-only') {
-    return statements.filter(statement => statement.seat !== viewer.id && leadIds.has(statement.seat))
-  }
-  const allowed = new Set(sees)
-  return statements.filter(statement => statement.seat !== viewer.id && allowed.has(statement.seat))
+  return pool.filter(statement => statement.status === 'completed')
 }
 
 function renderStatement(statement: Statement): string {
   const label = [statement.name, statement.role].filter(Boolean).join(' · ')
-  const body = statement.structured !== undefined && statement.structured !== null
-    ? JSON.stringify(statement.structured, null, 2)
+  const body = statement.verdict !== undefined
+    ? `${statement.content}\n（判断：${statement.verdict === 'pass'
+      ? 'pass'
+      : 'reject'}）`
     : statement.content
   return `### ${label}\n\n${body}`
 }
 
 export interface PromptInput {
-  phaseId: string
-  topic?: string
-  /** Initial material handed in by the caller. */
+  /** What this discussion must answer. Required at the API edge. */
+  topic: string
+  /** Why the meeting was called. */
+  brief?: string
+  /** Everything the caller put on the table, already numbered by position. */
   context: string[]
-  /** Statements this seat is allowed to see. */
+  /** Pool entries this seat is allowed to hear. */
   visible: Statement[]
-  /** Previous attempt's rejection notes, when the meeting loops. */
+  /** Count of statements trimmed out of the pool by `maxPoolTokens`. */
+  dropped?: number
+  /** Why the previous attempt was rejected; only a follow-up round has these. */
   revisionNotes?: string[]
-  /** Extra instruction describing what this phase expects. */
-  phaseInstruction?: string
 }
 
 /**
  * Build the user message for one seat.
  *
- * The system prompt carries the persona; this carries only what the seat is
- * permitted to know at this moment. Keeping the two apart means a visibility
- * change never threatens the persona text.
+ * Four blocks, always in this order and always labelled: 议题 / 背景 / 材料 /
+ * 前序发言. The first three are the caller's input, the fourth is the discussion
+ * itself; separating them is what lets a model tell "what we are deciding" from
+ * "what others have said".
+ *
+ * The system prompt carries the persona. Keeping the two apart means a change to
+ * visibility never threatens the persona text.
  */
 export function buildUserPrompt(input: PromptInput): string {
   const blocks: string[] = []
 
-  if (input.topic) {
-    blocks.push(`## 本次议题\n\n${input.topic}`)
+  blocks.push(`## 议题\n\n${input.topic.trim()}`)
+
+  if (input.brief?.trim()) {
+    blocks.push(`## 背景\n\n${input.brief.trim()}`)
   }
 
   if (input.context.length) {
-    const items = input.context.map((item, index) => `${index + 1}. ${item}`).join('\n')
-    blocks.push(`## 已知材料\n\n${items}`)
-  }
-
-  if (input.phaseInstruction) {
-    blocks.push(`## 当前阶段\n\n${input.phaseInstruction}`)
+    // Numbered so a seat can say "第 2 条材料里…" and be understood by everyone.
+    const items = input.context.map((item, index) => `### 材料 ${index + 1}\n\n${item}`).join('\n\n')
+    blocks.push(`## 材料\n\n${items}`)
   }
 
   if (input.visible.length) {
-    blocks.push(`## 前序发言\n\n${input.visible.map(renderStatement).join('\n\n')}`)
+    if (input.dropped) {
+      blocks.push(`## 前序发言\n\n（更早的 ${input.dropped} 条发言已超出长度上限，略去）\n\n${input.visible.map(renderStatement).join('\n\n')}`)
+    }
+    else {
+      blocks.push(`## 前序发言\n\n${input.visible.map(renderStatement).join('\n\n')}`)
+    }
   }
 
   if (input.revisionNotes?.length) {
+    // A follow-up round opens with what blocked the last one. This is the
+    // caller's list, not a pool entry, so it reaches every seat — asking a seat
+    // to fix a problem it is not told about does not work.
     const notes = input.revisionNotes.map(note => `- ${note}`).join('\n')
     blocks.push(`## 上一轮的否决理由\n\n${notes}`)
   }
 
   blocks.push(
     '## 输出要求\n\n'
-    + '只输出你的发言本身，不要复述上述材料。\n'
-    + '若你拥有否决权，请在需要否决时写明理由；没有理由的否决会被忽略。'
+    + '只说一句你要说的话，像在圆桌上接话一样，不要复述材料、不要写报告。\n'
+    + '如果要回应别人，直接点名回应，不要泛泛而谈。'
   )
 
   return blocks.join('\n\n')
 }
 
-/** Instruction text injected for a named phase, when the table does not override it. */
-export function defaultPhaseInstruction(phaseId: string): string | undefined {
-  switch (phaseId) {
-    case 'propose':
-      return '提出一个你认为值得讨论的具体议题，并说明为什么是现在、为什么值得做。'
-    case 'discuss':
-      return '对你看到的前序观点作出回应：可以附议、反驳或补充，但必须给出理由。'
-    case 'produce':
-      return '按已达成的方向产出实际结果。'
-    case 'review':
-      return '核对产出是否满足要求。发现问题请逐条列出；需要否决时写明理由。'
-    case 'converge':
-      return '收口：给出结论、遗留分歧和下一步。'
-    default:
-      return undefined
-  }
+/**
+ * Instruction for a voting seat, appended to its user message.
+ *
+ * The seat supplies material — a verdict, a reason, issues — and the program
+ * decides. Asking for `approved` would put the decision in a place nobody can
+ * audit later, so it is never requested.
+ */
+export function verdictInstruction(seat: Seat): string {
+  const veto = seat.seat.canVeto
+    ? '你有否决权：否决必须写明理由，没有理由的否决会被忽略。'
+    : ''
+  return [
+    '除这句话，还要给出你的判断，用 JSON 对象返回：',
+    '{"verdict":"pass|reject","reason":"一句话理由","score":0到1,"issues":["…"]}',
+    'verdict 由你给出，是否通过由程序按权重与阈值计算；不要写 approved。',
+    veto
+  ].filter(Boolean).join('\n')
 }

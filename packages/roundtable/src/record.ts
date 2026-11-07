@@ -1,69 +1,93 @@
-import type { LoadedRoundtable } from './config'
-import type { BudgetState, PhaseRecord, RoundRecord, RoundtableStatus } from './engine'
+import type { RoundtableStatus, Usage } from './engine'
 import type { Statement } from './prompt'
-import type { Judgement } from './verdict'
+import type { Seat } from './seat'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-export const RECORD_SCHEMA = 1
+/** Bumped whenever `record.json` changes shape. Downstream code branches on it. */
+export const RECORD_SCHEMA = 2
+
+/** Terminal statuses; only these are written as a finished record. */
+export type FinalStatus = Exclude<RoundtableStatus, 'running'>
+
+export interface RecordVerdict {
+  passed: boolean
+  /** Seats whose valid veto blocked the meeting. */
+  vetoed: string[]
+  /** Weighted pass share, 0–1. */
+  score: number
+}
 
 export interface RoundtableRecord {
   schema: number
   title: string
+  topic: string
+  brief?: string
   startedAt: string
-  finishedAt?: string
-  status: RoundtableStatus
+  finishedAt: string
+  status: FinalStatus
   attempts: number
-  verdict: {
-    passed: boolean
-    vetoed: string[]
-    rejected: string[]
-    score: number
-    invalidVetoes: string[]
-  }
-  rounds: RoundRecord[]
-  budget: { total?: number, used: number, perSeat: Record<string, number> }
-  /** Files produced under artifacts/, referenced by statements. */
-  artifacts?: string[]
+  verdict: RecordVerdict
+  /** Every statement of the final attempt, in the order it entered the pool. */
+  statements: Statement[]
+  usage: Usage
+  /** One line explaining an abort or a failure. Never a provider payload. */
   error?: string
 }
 
+/** One finished discussion. Kept so a loop can feed the veto reasons forward. */
+export interface AttemptState {
+  attempt: number
+  startedAt: string
+  finishedAt?: string
+  statements: Statement[]
+  verdict?: RecordVerdict
+  /** Set when a seat asked to abort; the meeting stops after this attempt. */
+  aborted?: boolean
+}
+
+/**
+ * Everything needed to resume an interrupted discussion.
+ *
+ * Not an external interface: `--resume` reads it, nothing else should.
+ */
 export interface RunState {
   schema: number
   runId: string
-  /** `running` until the loop settles on a terminal status. */
-  status: RoundtableStatus | 'running'
+  status: RoundtableStatus
   attempt: number
-  phaseIndex: number
-  phaseId?: string
-  budget: BudgetState
-  fingerprint: string
-  resumable: boolean
-  rounds: RoundRecord[]
   startedAt: string
   finishedAt?: string
-  topic?: string
+  topic: string
+  brief?: string
+  /** Material handed in by the caller, kept so a resume needs no arguments. */
   context: string[]
+  /** Statements of the current attempt, in landing order. */
+  pool: Statement[]
+  /**
+   * What this attempt was opened with: the veto reasons of the attempt before it.
+   *
+   * Kept so a resumed attempt hears them again — a seat that speaks after the
+   * crash must not miss why the table is meeting a second time.
+   */
+  notes?: string[]
+  /** Finished attempts, oldest first. */
+  attempts: AttemptState[]
+  usage: Usage
+  fingerprint: string
   error?: string
 }
 
-function statusWord(status: RoundtableStatus): string {
-  switch (status) {
-    case 'passed':
-      return '通过'
-    case 'rejected':
-      return '未通过'
-    case 'aborted':
-      return '中止'
-    case 'failed':
-      return '失败'
-    default:
-      return '进行中'
-  }
+const STATUS_WORD: Record<FinalStatus, string> = {
+  passed: '通过',
+  rejected: '未通过',
+  aborted: '中止',
+  failed: '失败'
 }
 
-function formatDuration(ms: number): string {
-  const seconds = Math.round(ms / 1000)
+/** `1 分 14 秒`; the minutes part is dropped below one minute. */
+export function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000))
   if (seconds < 60) {
     return `${seconds} 秒`
   }
@@ -74,97 +98,33 @@ function formatDuration(ms: number): string {
     : `${minutes} 分`
 }
 
-function statementLabel(statement: Statement, loaded: LoadedRoundtable): string {
-  const seat = loaded.byId.get(statement.seat)
+/** `1m14s` for the one-line CLI summary. */
+export function formatShortDuration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 60) {
+    return `${seconds}s`
+  }
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  if (minutes < 60) {
+    return `${minutes}m${String(rest).padStart(2, '0')}s`
+  }
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h${String(minutes % 60).padStart(2, '0')}m`
+}
+
+/** `格罗姆 🏪 门店读者视角`, the label a reader sees above one paragraph. */
+function statementLabel(statement: Statement, seats: Map<string, Seat>): string {
+  const seat = seats.get(statement.seat)
   const name = statement.name || seat?.identity.name || statement.seat
   const role = statement.role || seat?.role || ''
   const avatar = seat?.identity.avatar
-  const parts = [avatar, name].filter(Boolean).join(' ')
+  const parts = avatar
+    ? `${name} ${avatar}`
+    : name
   return role
-    ? `${parts} · ${role}`
+    ? `${parts} ${role}`
     : parts
-}
-
-/** Render the human-readable minutes from the structured record. */
-export function renderRecordMarkdown(record: RoundtableRecord, loaded: LoadedRoundtable): string {
-  const lines: string[] = []
-  const date = record.startedAt.slice(0, 10)
-  lines.push(`# ${record.title} · ${date}`, '')
-
-  const vetoText = record.verdict.vetoed.length
-    ? `，否决：${record.verdict.vetoed.join('、')}`
-    : '，无否决'
-  lines.push(`**结论**：${statusWord(record.status)}（通过率 ${Math.round(record.verdict.score * 100)}%${vetoText}）`)
-  const elapsed = record.finishedAt
-    ? formatDuration(new Date(record.finishedAt).getTime() - new Date(record.startedAt).getTime())
-    : '进行中'
-  const total = record.budget.total === undefined
-    ? '不限'
-    : String(record.budget.total)
-  lines.push(`**轮次**：第 ${record.attempts} 轮 · 预算 ${record.budget.used}/${total} · 用时 ${elapsed}`)
-
-  const absent: string[] = []
-  const latest = record.rounds[record.rounds.length - 1]
-
-  if (latest) {
-    // Group phase output by the role the phase plays, so a reader follows the
-    // meeting rather than the implementation's phase names.
-    for (const phase of latest.phases) {
-      const heading = phaseHeading(phase.id, loaded)
-      const completed = phase.statements.filter(statement => statement.status === 'completed')
-      for (const statement of phase.statements) {
-        if (statement.status !== 'completed') {
-          absent.push(`${statementLabel(statement, loaded)}（${describeStatus(statement.status)}）`)
-        }
-      }
-      if (!completed.length) {
-        if (phase.pruned) {
-          lines.push('', `## ${heading}`, '', '（前置阶段没有产出，本阶段跳过）')
-        }
-        continue
-      }
-      lines.push('', `## ${heading}`, '')
-      for (const statement of completed) {
-        lines.push(`**${statementLabel(statement, loaded)}**`, '')
-        lines.push(renderStatementBody(statement), '')
-      }
-      if (phase.judgement) {
-        lines.push(renderJudgement(phase.judgement, loaded), '')
-      }
-    }
-  }
-
-  if (record.verdict.invalidVetoes.length) {
-    lines.push('## 被忽略的否决', '', `以下否决未写明理由，按规则视为无效：${record.verdict.invalidVetoes.join('、')}`, '')
-  }
-
-  if (absent.length) {
-    lines.push('## 缺席名单', '', ...absent.map(item => `- ${item}`), '')
-  }
-
-  if (record.artifacts?.length) {
-    lines.push('## 产物', '', ...record.artifacts.map(path => `- ${path}`), '')
-  }
-
-  return `${lines.join('\n').trimEnd()}\n`
-}
-
-function phaseHeading(phaseId: string, loaded: LoadedRoundtable): string {
-  const special = loaded.table.special
-  if (phaseId === special.propose) {
-    return '议题'
-  }
-  if (phaseId === special.converge) {
-    return '收口'
-  }
-  const season: Record<string, string> = {
-    propose: '议题',
-    discuss: '讨论',
-    produce: '产出',
-    review: '审核',
-    converge: '收口'
-  }
-  return season[phaseId] ?? phaseId
 }
 
 function describeStatus(status: Statement['status']): string {
@@ -173,45 +133,82 @@ function describeStatus(status: Statement['status']): string {
       return '跳过'
     case 'failed':
       return '失败'
-    case 'budget-exhausted':
-      return '预算耗尽'
     case 'invalid-veto':
-      return '否决无效'
+      return '否决未写理由'
     default:
       return status
   }
 }
 
-function renderStatementBody(statement: Statement): string {
-  const { structured } = statement
-  if (structured && typeof structured === 'object' && !Array.isArray(structured)) {
-    const entries = Object.entries(structured as Record<string, unknown>)
-    if (entries.length) {
-      const rows = entries.map(([key, value]) => {
-        const text = typeof value === 'string'
-          ? value
-          : JSON.stringify(value)
-        return `| ${key} | ${String(text).replace(/\|/g, '\\|')} |`
-      })
-      return ['| 键 | 值 |', '| --- | --- |', ...rows].join('\n')
-    }
-  }
-  return statement.content.trim()
-}
+/**
+ * Render the human-readable minutes from the record alone.
+ *
+ * No model call: the summary must say exactly what the record says, or the two
+ * will drift and someone will quote the wrong one.
+ */
+export function renderRecordMarkdown(record: RoundtableRecord, seats: Map<string, Seat>): string {
+  const lines: string[] = []
+  const date = record.startedAt.slice(0, 10)
+  lines.push(`# ${record.title} · ${date}`, '')
 
-function renderJudgement(judgement: Judgement, loaded: LoadedRoundtable): string {
-  const parts: string[] = []
-  parts.push(judgement.passed ? '裁决：通过' : '裁决：未通过')
-  parts.push(`通过率 ${Math.round(judgement.score * 100)}%`)
-  if (judgement.vetoed.length) {
-    const names = judgement.vetoed.map(id => loaded.byId.get(id)?.identity.name ?? id)
-    parts.push(`否决：${names.join('、')}`)
+  lines.push(`**议题**：${record.topic}`)
+  if (record.brief) {
+    lines.push(`**背景**：${record.brief}`)
   }
-  if (judgement.rejected.length && !judgement.vetoed.length) {
-    const names = judgement.rejected.map(id => loaded.byId.get(id)?.identity.name ?? id)
-    parts.push(`反对：${names.join('、')}`)
+
+  const vetoNames = record.verdict.vetoed
+    .map(id => seats.get(id)?.identity.name ?? id)
+  const percent = Math.round(record.verdict.score * 100)
+  const verdictParts: string[] = []
+  if (vetoNames.length) {
+    verdictParts.push(`${vetoNames.join('、')}否决`)
   }
-  return `> ${parts.join(' · ')}`
+  if (record.status === 'passed') {
+    verdictParts.unshift(`通过（通过率 ${percent}%）`)
+  }
+  else if (record.status === 'rejected') {
+    verdictParts.unshift(`未通过（通过率 ${percent}%${vetoNames.length ? '' : '，未达门槛'}）`)
+  }
+  else {
+    verdictParts.unshift(STATUS_WORD[record.status])
+  }
+  lines.push(`**结论**：${verdictParts.join('，')}`)
+
+  const elapsed = formatDuration(new Date(record.finishedAt).getTime() - new Date(record.startedAt).getTime())
+  const calls = record.statements.filter(statement => statement.status !== 'skipped').length
+  lines.push(`**用时**：${elapsed} · ${calls} 次发言 · ${record.attempts} 轮`)
+  if (record.error) {
+    lines.push(`**说明**：${record.error}`)
+  }
+
+  lines.push('', '## 讨论', '')
+
+  const absent: string[] = []
+  for (const statement of record.statements) {
+    if (statement.status === 'completed') {
+      lines.push(`**${statementLabel(statement, seats)}**`, '')
+      lines.push(statement.content.trim(), '')
+      continue
+    }
+    // Absence is listed once per seat, at the end, rather than interrupting the
+    // conversation with an error line in the middle of a sentence.
+    absent.push(`${statementLabel(statement, seats)}（${describeStatus(statement.status)}）`)
+  }
+
+  const invalidVetoes = record.statements
+    .filter(statement => statement.status === 'invalid-veto')
+    .map(statement => statementLabel(statement, seats))
+  if (invalidVetoes.length) {
+    lines.push('## 被忽略的否决', '', `以下否决没有写明理由，按规则不计入：${invalidVetoes.join('、')}`, '')
+  }
+
+  lines.push('---', '')
+  lines.push(`**缺席**：${absent.length
+    ? absent.join('、')
+    : '无'}`)
+  lines.push('')
+
+  return `${lines.join('\n').trimEnd()}\n`
 }
 
 /** Write a JSON file, creating the directory when needed. */
@@ -225,44 +222,36 @@ export async function writeText(path: string, value: string): Promise<void> {
   await writeFile(path, value, 'utf8')
 }
 
-/** Build the record object from the run state. */
-export function buildRecord(state: RunState, loaded: LoadedRoundtable): RoundtableRecord {
-  const finalJudgement = state.rounds
-    .flatMap(round => round.phases)
-    .filter((phase): phase is PhaseRecord & { judgement: Judgement } => Boolean(phase.judgement))
-    .pop()
-    ?.judgement
+/** Assemble the record from a settled run state. */
+export function buildRecord(state: RunState, title: string): RoundtableRecord {
+  const final = state.attempts.at(-1)
+  const status: FinalStatus = state.status === 'running'
+    ? 'failed'
+    : state.status
 
-  const artifacts = state.rounds
-    .flatMap(round => round.phases)
-    .flatMap(phase => phase.statements)
-    .flatMap(statement => statement.artifacts ?? [])
-    .map(item => item.path)
+  const verdict: RecordVerdict = final?.verdict ?? {
+    passed: false,
+    vetoed: [],
+    score: 0
+  }
 
   return {
     schema: RECORD_SCHEMA,
-    title: loaded.table.title,
+    title,
+    topic: state.topic,
+    ...(state.brief
+      ? { brief: state.brief }
+      : {}),
     startedAt: state.startedAt,
-    finishedAt: state.finishedAt,
-    status: state.status,
-    attempts: state.rounds.length,
-    verdict: {
-      passed: state.status === 'passed',
-      vetoed: finalJudgement?.vetoed ?? [],
-      rejected: finalJudgement?.rejected ?? [],
-      score: finalJudgement?.score ?? 0,
-      invalidVetoes: state.rounds
-        .flatMap(round => round.phases)
-        .flatMap(phase => phase.judgement?.invalidVetoes ?? [])
-    },
-    rounds: state.rounds,
-    budget: {
-      total: state.budget.total,
-      used: state.budget.used,
-      perSeat: state.budget.perSeat
-    },
-    artifacts: artifacts.length ? artifacts : undefined,
-    error: state.error
+    finishedAt: state.finishedAt ?? new Date().toISOString(),
+    status,
+    attempts: Math.max(1, state.attempts.length || state.attempt),
+    verdict,
+    statements: final?.statements ?? state.pool,
+    usage: state.usage,
+    ...(state.error
+      ? { error: state.error }
+      : {})
   }
 }
 
@@ -285,5 +274,32 @@ export function makeRunId(date: Date = new Date()): string {
     pad(date.getMinutes()),
     '-',
     pad(date.getSeconds())
+  ].join('')
+}
+
+/** ISO timestamp with the local offset, so a record is readable in the caller's zone. */
+export function isoLocal(date: Date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const offset = -date.getTimezoneOffset()
+  const sign = offset >= 0
+    ? '+'
+    : '-'
+  const absolute = Math.abs(offset)
+  return [
+    date.getFullYear(),
+    '-',
+    pad(date.getMonth() + 1),
+    '-',
+    pad(date.getDate()),
+    'T',
+    pad(date.getHours()),
+    ':',
+    pad(date.getMinutes()),
+    ':',
+    pad(date.getSeconds()),
+    sign,
+    pad(Math.floor(absolute / 60)),
+    ':',
+    pad(absolute % 60)
   ].join('')
 }

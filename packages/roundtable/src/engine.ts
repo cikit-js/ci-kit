@@ -1,158 +1,180 @@
 import type { LoadedRoundtable } from './config'
-import type { ArtifactRef, Statement, StatementStatus } from './prompt'
+import type { ArtifactRef, Statement } from './prompt'
 import type { Seat } from './seat'
-import type { Phase } from './table'
-import type { Judgement, Vote } from './verdict'
+import type { Vote } from './verdict'
 import { text as aiText, isAiError } from '@ci-kit/ai'
-import { buildUserPrompt, defaultPhaseInstruction, visibleStatements } from './prompt'
+import { buildUserPrompt, verdictInstruction, visibleStatements } from './prompt'
 import { renderSeatSystemPrompt } from './seat'
-import { judgePhase } from './verdict'
+import { readVerdict, vetoReason } from './verdict'
 
+/** Same status set as the record; `running` never reaches disk as a final value. */
 export type RoundtableStatus = 'running' | 'passed' | 'rejected' | 'aborted' | 'failed'
-export type PhaseStatus = 'completed' | 'skipped' | 'failed' | 'budget-exhausted'
 
-export interface PhaseRecord {
-  id: string
-  status: PhaseStatus
-  statements: Statement[]
-  judgement?: Judgement
-  /** True when a completed phase had no input from its dependencies. */
-  pruned?: boolean
-}
-
-export interface RoundRecord {
-  attempt: number
-  phases: PhaseRecord[]
-}
-
-export interface BudgetState {
-  total?: number
-  used: number
-  perSeat: Record<string, number>
-  perSeatLimit: Record<string, number | undefined>
-}
-
-export interface EngineEvents {
-  onStatement?: (statement: Statement) => void
-  onPhaseStart?: (phase: Phase, attempt: number) => void
-  onPhaseEnd?: (phase: Phase, record: PhaseRecord, attempt: number) => void
-  onAttempt?: (attempt: number, judgement: Judgement | undefined) => void
-}
-
-/** The AI call the engine depends on; injectable so meetings can be tested offline. */
+/** The AI call the engine depends on; injectable so discussions can be tested offline. */
 export type TextCaller = typeof aiText
 
 /**
  * Above this length a statement's body is written to `artifacts/` instead of
  * being inlined in `record.json`.
  *
- * The record stays a compact index of what happened; a long draft belongs in
- * its own file that a later step can read, diff or publish without parsing a
+ * The record stays a compact index of what happened; a long draft belongs in its
+ * own file that a later step can read, diff or publish without parsing a
  * megabyte of JSON.
  */
 export const ARTIFACT_THRESHOLD = 8_000
 
+/** Rough token estimate used for the pool cap, `maxPoolTokens`. */
+export function estimateTokens(content: string): number {
+  // CJK ideographs are about one token each; everything else clusters around four
+  // characters per token. Counting both keeps the estimate honest for mixed text.
+  const cjk = (content.match(/[\u3400-\u9FFF\uF900-\uFAFF]/g) ?? []).length
+  const rest = content.length - cjk
+  return cjk + Math.ceil(rest / 4)
+}
+
+/**
+ * Keep the newest entries that fit in `maxPoolTokens`.
+ *
+ * Trimming from the front is deliberate: an old statement is the one the meeting
+ * has already reacted to, and the cost of forgetting is "long talks lose their
+ * opening" — bounded and predictable — instead of "the meeting stops".
+ */
+export function trimPool(pool: Statement[], maxPoolTokens: number): { kept: Statement[], dropped: number } {
+  let total = 0
+  let firstKept = pool.length
+  // Walk backwards so the most recent statements are always kept, even when a
+  // single long one exceeds the cap on its own.
+  for (let index = pool.length - 1; index >= 0; index--) {
+    const cost = estimateTokens(pool[index]!.content)
+    if (total + cost > maxPoolTokens && firstKept !== pool.length) {
+      break
+    }
+    total += cost
+    firstKept = index
+  }
+  return {
+    kept: pool.slice(firstKept),
+    dropped: firstKept
+  }
+}
+
+export interface Usage {
+  input: number
+  output: number
+}
+
+export interface EngineEvents {
+  /** One line per finished call, for CLI progress on stderr. */
+  onStatement?: (statement: Statement) => void
+}
+
 export interface EngineOptions {
   loaded: LoadedRoundtable
-  /** Initial material, already normalized to a list. */
+  topic: string
+  brief?: string
+  /** Initial material, already normalized to a list and in the caller's order. */
   context: string[]
-  /** Optional human topic override. */
-  topic?: string
   env?: NodeJS.ProcessEnv
-  budget: BudgetState
-  /** Per-phase instruction overrides from the table body, keyed by phase id. */
-  phaseInstructions?: Record<string, string>
-  events?: EngineEvents
-  /** Persist progress; called after every phase and every call. */
-  persist?: () => Promise<void>
+  /** Statements produced before an interruption, replayed as the opening pool. */
+  priorPool?: Statement[]
+  /** Veto reasons from the previous attempt; fed to every seat of a follow-up round. */
+  revisionNotes?: string[]
+  /**
+   * The first discussion opens with these reasons already on the table.
+   *
+   * A resumed run is still the same attempt: the veto reasons it was opened with
+   * belong to it, or a seat speaking after the crash would never hear them.
+   */
+  openingNotes?: string[]
+  /** When the discussion started, for a resumed run. Defaults to now. */
+  startedAt?: number
+  /** Persist progress; called after every landed statement. */
+  persist?: () => void | Promise<void>
   /** Defaults to `@ci-kit/ai`'s text(); tests pass a stub. */
   callText?: TextCaller
-  /**
-   * Write oversized statement bodies under `artifacts/`. Receives the relative
-   * path and content, returns the byte count for the recorded reference.
-   * Without this, long bodies stay inline in the record.
-   */
-  writeArtifact?: (relativePath: string, content: string) => Promise<number>
-  /** Attempt number, used to keep artifact names unique across attempts. */
+  /** Attempt number, so artifacts from a retry never overwrite the previous one. */
   attempt?: number
+  /** Write oversized statement bodies under `artifacts/`, returning the byte count. */
+  writeArtifact?: (relativePath: string, content: string) => Promise<number>
+  events?: EngineEvents
+  /** Injection point for tests: identity time source, monotonic enough for a deadline. */
+  now?: () => number
+  /** Injection point for tests: sleep between a `retry` seat's attempts. */
+  sleep?: (ms: number) => Promise<void>
 }
 
-export interface AttemptResult {
-  round: RoundRecord
-  judgement: Judgement | undefined
-  /** Set when the meeting must stop (abort or budget exhaustion). */
-  stop?: 'aborted' | 'budget-exhausted'
+export interface DiscussionResult {
+  /** Everything that landed in the pool this run, in landing order. */
+  statements: Statement[]
+  /** Set when a seat with `fallback: abort` failed and ended the meeting. */
+  abortedBy?: { seat: string, error: string }
+  usage: Usage
 }
 
-export interface AttemptOptions extends EngineOptions {
-  /** Veto reasons from the previous attempt, fed to the propose phase. */
-  revisionNotes?: string[]
-  /** Resume this attempt at the given phase instead of the first one. */
-  startPhaseId?: string
-  /**
-   * Records of phases that already finished before an interruption. They are
-   * treated as produced input so downstream phases are not pruned, and their
-   * statements stay visible to seats that allow it.
-   */
-  completedPhases?: PhaseRecord[]
-}
-
-function remainingTotal(budget: BudgetState): number {
-  if (budget.total === undefined) {
-    return Number.POSITIVE_INFINITY
-  }
-  return budget.total - budget.used
-}
-
-function seatLimit(seat: Seat, budget: BudgetState): number | undefined {
-  return seat.seat.budget ?? budget.perSeatLimit[seat.id]
-}
-
-function canSpend(seat: Seat, budget: BudgetState): boolean {
-  if (remainingTotal(budget) <= 0) {
-    return false
-  }
-  const limit = seatLimit(seat, budget)
-  if (limit === undefined) {
-    return true
-  }
-  return (budget.perSeat[seat.id] ?? 0) < limit
-}
-
-function spend(seatId: string, budget: BudgetState): void {
-  budget.used += 1
-  budget.perSeat[seatId] = (budget.perSeat[seatId] ?? 0) + 1
-}
-
-/** One AI call for a seat, tracked and classified. */
-interface CallResult {
+interface CallOutcome {
   ok: boolean
   content: string
   structured?: unknown
-  model?: string
-  usage?: { input: number, output: number }
-  durationMs: number
   error?: string
-  /** True when the failure must stop the whole meeting. */
-  fatal?: boolean
+  kind?: string
+  fatal: boolean
+  retryable: boolean
+  model?: string
+  usage?: Usage
+  durationMs: number
 }
 
-async function callSeat(seat: Seat, prompt: string, options: EngineOptions): Promise<CallResult> {
-  const started = Date.now()
+/** Kinds that may succeed later without changing anything, per the contract. */
+const RETRYABLE_KINDS = new Set(['quota', 'server', 'network'])
+
+/** Wait between a `retry` seat's first and second attempt, in ms. */
+export const RETRY_BACKOFF_MS = 500
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function describeError(error: unknown): { text: string, kind?: string, retryable: boolean } {
+  if (isAiError(error)) {
+    return {
+      // `describe()` is the log-safe line; provider bodies can echo the prompt.
+      text: error.describe(),
+      kind: error.kind,
+      retryable: error.retryable
+    }
+  }
+  if (error instanceof Error) {
+    return { text: error.message, retryable: false }
+  }
+  return {
+    text: String(error),
+    retryable: false
+  }
+}
+
+/**
+ * One AI call for a seat.
+ *
+ * `retries` is left to the transport only when the seat asked for `retry`:
+ * a paid call that may have already completed must not be re-sent blindly, and
+ * a seat that wants another go states it in its own config.
+ */
+async function callSeat(seat: Seat, prompt: string, options: EngineOptions): Promise<CallOutcome> {
+  const started = options.now?.() ?? Date.now()
   const wantJson = seat.seat.output === 'json'
   const call = options.callText ?? aiText
   try {
     const result = await call({
-      prompt,
+      prompt: wantJson
+        ? `${prompt}\n\n${verdictInstruction(seat)}`
+        : prompt,
       system: renderSeatSystemPrompt(seat),
       json: wantJson,
-      temperature: seat.seat.temperature,
       maxTokens: seat.seat.maxTokens,
-      // How long one seat may spend reading and answering. The table sets it
-      // because a seat's work is longer than a short request; leaving it
-      // undefined keeps the transport default.
-      timeoutMs: options.loaded.table.timeoutMs,
-      // Paid, non-idempotent: never resend after an unknown outcome.
       retries: seat.seat.fallback === 'retry'
         ? undefined
         : 0,
@@ -169,8 +191,12 @@ async function callSeat(seat: Seat, prompt: string, options: EngineOptions): Pro
           content: result.value,
           model: result.model,
           usage: result.usage,
-          durationMs: Date.now() - started,
-          error: 'output: seat returned invalid JSON'
+          durationMs: (options.now?.() ?? Date.now()) - started,
+          error: 'output: seat returned invalid JSON',
+          kind: 'output',
+          fatal: false,
+          // A paid call that produced unparseable text is not retried.
+          retryable: false
         }
       }
     }
@@ -180,357 +206,236 @@ async function callSeat(seat: Seat, prompt: string, options: EngineOptions): Pro
       structured,
       model: result.model,
       usage: result.usage,
-      durationMs: Date.now() - started
+      durationMs: (options.now?.() ?? Date.now()) - started,
+      fatal: false,
+      retryable: false
     }
   }
   catch (error) {
-    const describe = isAiError(error)
-      ? error.describe()
-      : error instanceof Error
-        ? error.message
-        : String(error)
-    // A timeout after the provider accepted the request is deliberately not
-    // retried; ai() already models that as non-retryable.
+    const described = describeError(error)
     return {
       ok: false,
       content: '',
-      durationMs: Date.now() - started,
-      error: describe
+      durationMs: (options.now?.() ?? Date.now()) - started,
+      error: described.text,
+      kind: described.kind,
+      fatal: seat.seat.fallback === 'abort',
+      retryable: described.kind !== undefined && RETRYABLE_KINDS.has(described.kind) && described.retryable
     }
   }
 }
 
-function emptyStatement(seat: Seat, phaseId: string, status: StatementStatus, extra?: Partial<Statement>): Statement {
+function emptyStatement(
+  seat: Seat,
+  status: Statement['status'],
+  extra?: Partial<Statement>
+): Statement {
   return {
     seat: seat.id,
     name: seat.identity.name,
     role: seat.role,
-    phase: phaseId,
+    at: new Date().toISOString(),
     status,
     content: '',
     ...extra
   }
 }
 
-/** Run every seat of one phase and return its record. */
-async function runPhase(
-  phase: Phase,
-  attempt: number,
-  options: EngineOptions,
-  priorStatements: Statement[],
-  revisionNotes: string[],
-  dependenciesProduced: boolean
-): Promise<{ record: PhaseRecord, stop?: 'aborted' | 'budget-exhausted' }> {
-  const { loaded, budget, events } = options
-  const seats = phase.seats.map(id => loaded.byId.get(id)).filter((seat): seat is Seat => Boolean(seat))
-  const leadIds = new Set(loaded.seats.filter(seat => seat.seat.lead).map(seat => seat.id))
-
-  // `requires` prunes a phase whose inputs never materialized. That is the
-  // phase-level counterpart to a seat's `fallback`.
-  if (!dependenciesProduced) {
+/** The structured verdict a seat cast, if any. */
+export function voteOf(seat: Seat, statement: Statement): Vote | undefined {
+  if (seat.seat.output !== 'json' || statement.verdict === undefined) {
+    return undefined
+  }
+  const parsed = readVerdict(statement.structured)
+  if (parsed.verdict === 'reject') {
+    const reason = vetoReason(parsed, statement.content)
     return {
-      record: {
-        id: phase.id,
-        status: 'skipped',
-        statements: [],
-        pruned: true
-      }
+      seatId: seat.id,
+      weight: seat.seat.weight,
+      vote: 'reject',
+      // Only a `canVeto` seat can veto, and only with a reason on record.
+      veto: seat.seat.canVeto && reason.length > 0
     }
   }
-
-  events?.onPhaseStart?.(phase, attempt)
-
-  const instruction = options.phaseInstructions?.[phase.id] ?? defaultPhaseInstruction(phase.id)
-  const statements: Statement[] = []
-  const votes: Vote[] = []
-  let stop: 'aborted' | 'budget-exhausted' | undefined
-
-  const runSeat = async (seat: Seat): Promise<void> => {
-    if (!canSpend(seat, budget)) {
-      statements.push(emptyStatement(seat, phase.id, 'budget-exhausted'))
-      return
-    }
-
-    // Visibility is resolved against what already happened, so serial phases
-    // let later seats answer earlier ones while parallel phases see nothing
-    // from the same phase.
-    const visible = visibleStatements(seat, priorStatements.concat(statements), leadIds)
-    const prompt = buildUserPrompt({
-      phaseId: phase.id,
-      topic: options.topic,
-      context: options.context,
-      visible,
-      revisionNotes,
-      phaseInstruction: instruction
-    })
-
-    spend(seat.id, budget)
-    await options.persist?.()
-    const call = await callSeat(seat, prompt, options)
-
-    if (!call.ok) {
-      const status: StatementStatus = 'failed'
-      statements.push(emptyStatement(seat, phase.id, status, {
-        content: call.content,
-        error: call.error,
-        durationMs: call.durationMs,
-        model: call.model,
-        usage: call.usage
-      }))
-      if (seat.seat.fallback === 'abort') {
-        stop = 'aborted'
-      }
-      return
-    }
-
-    const statement: Statement = {
-      seat: seat.id,
-      name: seat.identity.name,
-      role: seat.role,
-      phase: phase.id,
-      status: 'completed',
-      content: call.content,
-      structured: call.structured,
-      durationMs: call.durationMs,
-      model: call.model,
-      usage: call.usage
-    }
-
-    // A long body belongs in its own file: the record stays a compact index,
-    // and the artifact is named per attempt so a retry never overwrites the
-    // previous one — old output is evidence for review.
-    if (options.writeArtifact && call.content.length > ARTIFACT_THRESHOLD) {
-      const attempt = options.attempt ?? 1
-      const relative = `artifacts/attempt-${attempt}-${seat.id}-${phase.id}.md`
-      const bytes = await options.writeArtifact(relative, call.content)
-      statement.artifacts = [
-        { path: relative, bytes }
-      ]
-    }
-
-    statements.push(statement)
-    events?.onStatement?.(statement)
-
-    // Only vetoable phases collect votes; elsewhere the meeting is expected to
-    // produce something rather than to decide something.
-    if (phase.vetoable) {
-      const verdict = readJudgement(call.structured, call.content)
-      const vote: Vote = {
-        seatId: seat.id,
-        weight: seat.seat.weight,
-        vote: verdict.verdict,
-        veto: verdict.veto,
-        hasReason: verdict.hasReason
-      }
-      if (verdict.invalidVeto) {
-        statement.status = 'invalid-veto'
-      }
-      votes.push(vote)
-    }
-  }
-
-  if (phase.mode === 'parallel') {
-    await Promise.all(seats.map(async seat => runSeat(seat)))
-  }
-  else {
-    for (const seat of seats) {
-      await runSeat(seat)
-      if (stop) {
-        break
-      }
-    }
-  }
-
-  if (stop) {
-    return {
-      record: { id: phase.id, status: 'failed', statements },
-      stop
-    }
-  }
-
-  const judgement = phase.vetoable
-    ? judgePhase(phase, seats, votes, loaded.table)
-    : undefined
-  const exhausted = statements.some(statement => statement.status === 'budget-exhausted')
-  const completed = statements.some(statement => statement.status === 'completed')
-  const status: PhaseStatus = exhausted && !completed
-    ? 'budget-exhausted'
-    : completed
-      ? 'completed'
-      : 'failed'
-
-  const record: PhaseRecord = {
-    id: phase.id,
-    status,
-    statements,
-    judgement
-  }
-  events?.onPhaseEnd?.(phase, record, attempt)
   return {
-    record,
-    stop: exhausted && !completed
-      ? 'budget-exhausted'
-      : undefined
+    seatId: seat.id,
+    weight: seat.seat.weight,
+    vote: 'pass',
+    veto: false
   }
+}
+
+function statementFromOutcome(
+  seat: Seat,
+  outcome: CallOutcome
+): Statement {
+  if (!outcome.ok) {
+    return emptyStatement(seat, 'failed', {
+      content: outcome.content,
+      error: outcome.error,
+      durationMs: outcome.durationMs,
+      model: outcome.model,
+      usage: outcome.usage
+    })
+  }
+
+  const parsed = seat.seat.output === 'json'
+    ? readVerdict(outcome.structured)
+    : {}
+  const statement: Statement = {
+    seat: seat.id,
+    name: seat.identity.name,
+    role: seat.role,
+    at: new Date().toISOString(),
+    status: 'completed',
+    content: outcome.content,
+    durationMs: outcome.durationMs,
+    model: outcome.model,
+    usage: outcome.usage
+  }
+  if (seat.seat.output === 'json') {
+    if (parsed.verdict !== undefined) {
+      statement.verdict = parsed.verdict
+    }
+    statement.structured = outcome.structured
+    // A veto with no reason is recorded as such and does not count. It stays
+    // `completed` for reading purposes, but the status says what happened.
+    if (parsed.verdict === 'reject' && seat.seat.canVeto && vetoReason(parsed, outcome.content).length === 0) {
+      statement.status = 'invalid-veto'
+    }
+  }
+  return statement
 }
 
 /**
- * Read a seat's judgement from structured output, falling back to plain text.
+ * Run one discussion: every seat talks in its own loop until the deadline.
  *
- * A seat with `output: text` can still vote: its content may start with a
- * leading `否决`/`通过` marker. Anything else is treated as no vote at all,
- * which is safer than inferring a decision from prose.
+ * There is no round, no phase and no barrier. Each seat takes a fresh snapshot of
+ * the pool, adds one statement, and immediately starts over; whoever speaks first
+ * is simply whoever returned first, which is what a real table sounds like.
  */
-function readJudgement(structured: unknown, content: string): {
-  verdict?: 'pass' | 'reject'
-  veto?: boolean
-  hasReason?: boolean
-  invalidVeto?: boolean
-} {
-  if (structured && typeof structured === 'object' && !Array.isArray(structured)) {
-    const source = structured as Record<string, unknown>
-    const verdict = source.verdict === 'pass' || source.verdict === 'reject'
-      ? source.verdict
-      : undefined
-    const reason = typeof source.reason === 'string'
-      ? source.reason.trim()
-      : ''
-    const veto = verdict === 'reject'
-    return {
-      verdict,
-      veto,
-      hasReason: reason.length > 0,
-      invalidVeto: veto && reason.length === 0
-    }
-  }
+export async function discuss(options: EngineOptions): Promise<DiscussionResult> {
+  const { loaded } = options
+  const now = options.now ?? (() => Date.now())
+  const sleep = options.sleep ?? defaultSleep
+  const seats = loaded.seats.filter(seat => seat.enabled)
+  const startedAt = options.startedAt ?? now()
+  const deadline = startedAt + loaded.table.durationMs
 
-  const head = content.trim().slice(0, 40)
-  if (/^(?:否决|不通过|reject)/i.test(head)) {
-    const reason = content.trim().slice(head.length).replace(/^[：:\s]+/, '').trim()
-    return {
-      verdict: 'reject',
-      veto: true,
-      hasReason: reason.length > 0,
-      invalidVeto: reason.length === 0
-    }
-  }
-  if (/^(?:通过|approve|pass)\b/i.test(head)) {
-    return { verdict: 'pass', veto: false }
-  }
-  return {}
-}
-
-/** Run one attempt: every phase in order, stopping early when told to. */
-export async function runAttempt(
-  attempt: number,
-  options: AttemptOptions
-): Promise<AttemptResult> {
-  const { loaded, events } = options
-  const phases: PhaseRecord[] = []
-  let stop: 'aborted' | 'budget-exhausted' | undefined
-  let judgement: Judgement | undefined
-
-  const startIndex = options.startPhaseId
-    ? Math.max(0, loaded.phases.findIndex(item => item.id === options.startPhaseId))
-    : 0
-
-  // Phases finished before a resume count as produced input; without them the
-  // first resumed phase would look like it had no dependency and get pruned.
-  const finished: PhaseRecord[] = [
-    ...(options.completedPhases ?? [])
+  const pool: Statement[] = [
+    ...(options.priorPool ?? [])
   ]
-  // Seats may see what a previous run already produced, subject to `sees`.
-  let allStatements: Statement[] = finished.flatMap(phase => phase.statements)
+  const usage: Usage = { input: 0, output: 0 }
+  let abortedBy: DiscussionResult['abortedBy']
+  let stopped = false
 
-  for (let index = startIndex; index < loaded.phases.length; index++) {
-    const phase = loaded.phases[index]!
-    const previous = loaded.phases[index - 1]
-    const deps = phase.requires.length
-      ? phase.requires
-      : previous
-        ? [previous.id]
-        : []
-    const dependenciesProduced = deps.every((dep) => {
-      const record = phases.find(item => item.id === dep) ?? finished.find(item => item.id === dep)
-      return Boolean(record && record.status === 'completed')
-    })
+  const land = (statement: Statement): void => {
+    pool.push(statement)
+    options.events?.onStatement?.(statement)
+  }
 
-    // Only the opening phase re-reads the rejection notes; later phases in the
-    // same attempt are downstream of whatever the new proposal turns into.
-    const notes = attempt > 1 && phase.id === loaded.table.special.propose
-      ? options.revisionNotes ?? []
-      : []
+  const runSeat = async (seat: Seat): Promise<void> => {
+    while (!stopped) {
+      if (now() >= deadline) {
+        // Deadline reached: no new request is started. Requests already in
+        // flight elsewhere still finish and are billed, so they land.
+        return
+      }
 
-    const { record, stop: phaseStop } = await runPhase(
-      phase,
-      attempt,
-      options,
-      allStatements,
-      notes,
-      deps.length === 0 || dependenciesProduced
-    )
-    phases.push(record)
-    allStatements = allStatements.concat(record.statements)
-    await options.persist?.()
+      const snapshot = trimPool(pool, loaded.table.maxPoolTokens)
+      const visible = visibleStatements(seat, snapshot.kept)
+      const prompt = buildUserPrompt({
+        topic: options.topic,
+        brief: options.brief,
+        context: options.context,
+        visible,
+        dropped: snapshot.dropped,
+        revisionNotes: (options.attempt ?? 1) === 1
+          ? options.openingNotes ?? options.revisionNotes
+          : options.revisionNotes
+      })
 
-    if (record.judgement) {
-      judgement = record.judgement
-    }
-    if (phaseStop) {
-      stop = phaseStop
-      break
+      let outcome = await callSeat(seat, prompt, options)
+      if (!outcome.ok && seat.seat.fallback === 'retry' && outcome.retryable && now() < deadline) {
+        await sleep(RETRY_BACKOFF_MS)
+        if (now() < deadline && !stopped) {
+          outcome = await callSeat(seat, prompt, options)
+        }
+      }
+
+      if (outcome.usage) {
+        usage.input += outcome.usage.input
+        usage.output += outcome.usage.output
+      }
+
+      const attempt = options.attempt ?? 1
+      const statement = statementFromOutcome(seat, outcome)
+
+      // A long body belongs in its own file: the record stays a compact index,
+      // and the artifact is named per attempt so a retry never overwrites the
+      // previous one — old output is evidence for review.
+      if (outcome.ok && options.writeArtifact && statement.content.length > ARTIFACT_THRESHOLD) {
+        const relative = `artifacts/attempt-${attempt}-${seat.id}-${pool.length + 1}.md`
+        const bytes = await options.writeArtifact(relative, statement.content)
+        const ref: ArtifactRef = { path: relative, bytes }
+        statement.artifacts = [ref]
+      }
+
+      land(statement)
+      await options.persist?.()
+
+      if (!outcome.ok) {
+        // 失败即该席位停止发言：`skip` 记一次缺席并让其他人继续；`retry` 已
+        // 用尽重试；`abort` 终止整场会。
+        if (seat.seat.fallback === 'abort') {
+          abortedBy = { seat: seat.id, error: outcome.error ?? 'seat failed' }
+          stopped = true
+        }
+        return
+      }
     }
   }
 
-  events?.onAttempt?.(attempt, judgement)
+  // Every seat enters its own loop at once. `Promise.all` settles only when all
+  // loops have ended, either by deadline, by failure, or by an abort.
+  await Promise.all(seats.map(async seat => runSeat(seat).catch((error) => {
+    if (isAbortError(error)) {
+      throw error
+    }
+    // A bug in one seat's loop must not silently lose the meeting; record it as
+    // that seat's failure and let the rest of the table finish.
+    land(emptyStatement(seat, 'failed', { error: describeError(error).text }))
+    if (seat.seat.fallback === 'abort') {
+      abortedBy = { seat: seat.id, error: describeError(error).text }
+      stopped = true
+    }
+  })))
+
   return {
-    round: { attempt, phases },
-    judgement,
-    stop
+    statements: pool.slice(options.priorPool?.length ?? 0),
+    abortedBy,
+    usage
   }
 }
 
-/** Collect veto reasons from a rejected round, for the next attempt. */
-export function collectRejectionNotes(round: RoundRecord, loaded: LoadedRoundtable): string[] {
-  const notes: string[] = []
-  for (const phase of round.phases) {
-    const judgement = phase.judgement
-    if (!judgement) {
+/** Statements that produced a vote, dropping earlier ones from the same seat. */
+export function finalVotes(seats: Seat[], statements: Statement[]): Vote[] {
+  const byId = new Map(seats.map(seat => [seat.id, seat]))
+  const latest = new Map<string, Vote>()
+  for (const statement of statements) {
+    const seat = byId.get(statement.seat)
+    if (!seat) {
       continue
     }
-    for (const seatId of [
-      ...judgement.vetoed,
-      ...judgement.rejected
-    ]) {
-      const statement = phase.statements.find(item => item.seat === seatId && item.status === 'completed')
-      if (!statement) {
-        continue
-      }
-      const seat = loaded.byId.get(seatId)
-      const label = seat
-        ? `${seat.identity.name}（${seat.role}）`
-        : seatId
-      const reason = extractReason(statement)
-      notes.push(`${label}：${reason || '未说明具体理由'}`)
+    const vote = voteOf(seat, statement)
+    if (!vote) {
+      continue
     }
+    // A seat may speak many times; its last statement is its word. Anything
+    // earlier is the discussion, not the verdict.
+    latest.set(seat.id, vote)
   }
-  return notes
+  return [
+    ...latest.values()
+  ]
 }
-
-function extractReason(statement: Statement): string {
-  if (statement.structured && typeof statement.structured === 'object' && !Array.isArray(statement.structured)) {
-    const source = statement.structured as Record<string, unknown>
-    if (typeof source.reason === 'string' && source.reason.trim()) {
-      return source.reason.trim()
-    }
-    if (Array.isArray(source.issues)) {
-      const issues = source.issues.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
-      if (issues.length) {
-        return issues.slice(0, 5).join('；')
-      }
-    }
-  }
-  return statement.content.trim().slice(0, 300)
-}
-
-export type { ArtifactRef }

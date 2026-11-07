@@ -1,55 +1,69 @@
 import type { LoadedRoundtable } from './config'
-import type { BudgetState, PhaseRecord, RoundtableStatus, TextCaller } from './engine'
-import type { RoundtableRecord, RunState } from './record'
+import type { RoundtableStatus, TextCaller } from './engine'
+import type { Statement } from './prompt'
+import type { AttemptState, RecordVerdict, RoundtableRecord, RunState } from './record'
 import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { defaultOutDir, loadRoundtable, RoundtableConfigError } from './config'
-import { collectRejectionNotes, runAttempt } from './engine'
-import { readFrontmatter } from './frontmatter'
-import {
-  buildRecord,
-  makeRunId,
-  RECORD_SCHEMA,
-  renderRecordMarkdown,
-  writeJson,
-  writeText
-} from './record'
+import { discuss, finalVotes } from './engine'
+import { buildRecord, isoLocal, makeRunId, RECORD_SCHEMA, renderRecordMarkdown, writeJson, writeText } from './record'
+import { judgeMeeting, readVerdict, vetoReason } from './verdict'
 
 export { checkRoundtable, defaultOutDir, loadRoundtable, RoundtableConfigError } from './config'
 export type { LoadedRoundtable } from './config'
-export type { BudgetState, PhaseRecord, RoundRecord, RoundtableStatus, TextCaller } from './engine'
+export { ARTIFACT_THRESHOLD, discuss, estimateTokens, finalVotes, trimPool } from './engine'
+export type { DiscussionResult, EngineOptions, RoundtableStatus, TextCaller, Usage } from './engine'
+export { buildUserPrompt, visibleStatements } from './prompt'
 export type { ArtifactRef, Statement, StatementStatus } from './prompt'
 export { RECORD_SCHEMA as ROUNDTABLE_SCHEMA } from './record'
-export type { RoundtableRecord, RunState } from './record'
-export type { Seat, SeatIdentity, SeatOutput, SeatPersona, SeatPowers } from './seat'
-export type { Phase, PhaseMode, Table } from './table'
-export type { Judgement, Vote } from './verdict'
+export type { AttemptState, FinalStatus, RecordVerdict, RoundtableRecord, RunState } from './record'
+export { renderSeatSystemPrompt, SEAT_DEFAULTS } from './seat'
+export type { Fallback, Seat, SeatIdentity, SeatOutput, SeatPersona, SeatPowers, Sees } from './seat'
+export { TABLE_DEFAULTS } from './table'
+export type { OnVeto, Table } from './table'
+export { judgeMeeting, readVerdict } from './verdict'
+export type { Judgement, SeatVerdict, Vote } from './verdict'
 
 export interface RoundtableOptions {
-  /** Directory holding `table.md` and `seats/` */
+  /** Directory holding `table.md` and `seats/`. */
   configDir: string
-  /** Material handed to the seats; the table never collects anything itself */
+  /** What this discussion must answer. Required: a table without a question is pointless. */
+  topic: string
+  /** Why the meeting was called. Optional. */
+  brief?: string
+  /** Material put on the table; a string is one item, an array is numbered in order. */
   context?: string | string[]
-  /** Optional human override; seats normally propose their own agenda */
-  topic?: string
-  /** Where run directories are written */
+  /** Where run directories are written. Defaults to `<cwd>/roundtable-out`. */
   outDir?: string
   env?: NodeJS.ProcessEnv
-  /** Emit one line per statement while the meeting runs. */
+  /** Emit one line per landed statement; the CLI sends these to stderr. */
   onProgress?: (line: string) => void
   /** Defaults to `@ci-kit/ai`'s text(); tests pass a stub. */
   callText?: TextCaller
+  /**
+   * Clock for the discussion deadline and for every timestamp written.
+   *
+   * Defaults to the real clock. Tests pass a stepping clock so a table can be
+   * about behaviour instead of about waiting `durationMs` per discussion.
+   */
+  now?: () => number
 }
 
 export interface RoundtableResult {
-  status: RoundtableStatus
+  status: Exclude<RoundtableStatus, 'running'>
   recordPath: string
   /** Directory holding record.json, record.md, state.json. */
   runDir: string
   record: RoundtableRecord
-  /** Total AI calls consumed. */
+  /** AI calls consumed by this run, including calls from earlier attempts. */
   used: number
-  budgetTotal?: number
+}
+
+function requireTopic(topic: string | undefined, where: string): string {
+  if (typeof topic !== 'string' || topic.trim() === '') {
+    throw new RoundtableConfigError(`${where}: topic is required; a discussion without a question has nothing to answer`)
+  }
+  return topic.trim()
 }
 
 function toContextList(context: string | string[] | undefined): string[] {
@@ -58,7 +72,9 @@ function toContextList(context: string | string[] | undefined): string[] {
   }
   if (typeof context === 'string') {
     return context.trim()
-      ? [context]
+      ? [
+          context.trim()
+        ]
       : []
   }
   if (!Array.isArray(context)) {
@@ -72,360 +88,239 @@ function toContextList(context: string | string[] | undefined): string[] {
   }).filter(Boolean)
 }
 
-function initialBudget(loaded: LoadedRoundtable): BudgetState {
-  const perSeatLimit: Record<string, number | undefined> = {}
-  for (const seat of loaded.seats) {
-    perSeatLimit[seat.id] = seat.seat.budget ?? loaded.table.budget.perSeat
-  }
+/** Turn the finished pool into the meeting's verdict. */
+function judgeAttempt(loaded: LoadedRoundtable, statements: Statement[]): RecordVerdict {
+  const seats = loaded.seats.filter(seat => seat.enabled)
+  const votes = finalVotes(seats, statements)
+  const judgement = judgeMeeting(seats, votes, loaded.table)
   return {
-    total: loaded.table.budget.total,
-    used: 0,
-    perSeat: {},
-    perSeatLimit
+    passed: judgement.passed,
+    vetoed: judgement.vetoed,
+    score: judgement.score
   }
 }
 
-/**
- * Body of `table.md` can carry phase-specific instructions. They are optional:
- * a table with no body uses the built-in phase hints.
- */
-function phaseInstructions(loaded: LoadedRoundtable, tableBody: string): Record<string, string> {
-  const result: Record<string, string> = {}
-  if (!tableBody.trim()) {
-    return result
+/** The reason a statement states, from its JSON when it has one. */
+function statedReason(statement: Statement): string {
+  const parsed = readVerdict(statement.structured)
+  const reason = vetoReason(parsed, parsed.verdict !== undefined
+    ? ''
+    : statement.content)
+  if (reason) {
+    return reason
   }
-  const sections = tableBody.split(/^##\s+/m).slice(1)
-  for (const section of sections) {
-    const [head, ...rest] = section.split('\n')
-    const id = head?.trim()
-    if (id && loaded.phases.some(phase => phase.id === id)) {
-      const text = rest.join('\n').trim()
-      if (text) {
-        result[id] = text
-      }
-    }
-  }
-  return result
+  // Nothing readable in a structured field: the raw text is still what the seat
+  // said, and quoting it beats telling the next round "否决" with no detail.
+  return parsed.verdict !== undefined
+    ? statement.content.trim().slice(0, 200)
+    : ''
 }
 
-async function readTableBody(configDir: string): Promise<string> {
-  const { readFile } = await import('node:fs/promises')
-  const source = await readFile(join(resolve(configDir), 'table.md'), 'utf8')
-  return readFrontmatter(source, 'table.md').body
+/** Veto reasons from the last attempt, worded for the next one to read. */
+function rejectionNotes(loaded: LoadedRoundtable, attempt: AttemptState | undefined): string[] {
+  if (!attempt?.verdict) {
+    return []
+  }
+  const notes: string[] = []
+  const seen = new Set<string>()
+  for (const seatId of [...attempt.verdict.vetoed]) {
+    if (seen.has(seatId)) {
+      continue
+    }
+    seen.add(seatId)
+    const seat = loaded.byId.get(seatId)
+    const label = seat
+      ? `${seat.identity.name}（${seat.role}）`
+      : seatId
+    const statement = [...attempt.statements].reverse().find(item => item.seat === seatId && item.status === 'completed')
+    notes.push(`${label}：${statement
+      ? statedReason(statement) || '否决'
+      : '否决'}`)
+  }
+  for (const statement of attempt.statements) {
+    if (statement.status !== 'invalid-veto') {
+      continue
+    }
+    const seat = loaded.byId.get(statement.seat)
+    const label = seat
+      ? `${seat.identity.name}（${seat.role}）`
+      : statement.seat
+    notes.push(`${label}：${statedReason(statement) || '未写理由'}（否决未写理由，未计入）`)
+  }
+  return notes
 }
 
-/**
- * Run one meeting.
- *
- * Business failure is reported through `status`, never thrown: a rejected
- * meeting is a normal result. Only configuration and usage errors throw,
- * because those mean nothing could start.
- */
-export async function runRoundtable(options: RoundtableOptions): Promise<RoundtableResult> {
-  const loaded = await loadRoundtable({ configDir: options.configDir, schema: RECORD_SCHEMA })
-  const context = toContextList(options.context)
-  const outDir = resolve(options.outDir ?? defaultOutDir())
-  const runId = makeRunId()
-  const runDir = join(outDir, runId)
-  await mkdir(runDir, { recursive: true })
-
-  // `running` is a transient state; the loop below always settles on a terminal
-  // one before the record is written.
-  const state: RunState = {
-    schema: RECORD_SCHEMA,
-    runId,
-    status: 'running',
-    attempt: 1,
-    phaseIndex: 0,
-    budget: initialBudget(loaded),
-    fingerprint: loaded.fingerprint,
-    resumable: true,
-    rounds: [],
-    startedAt: new Date().toISOString(),
-    topic: options.topic,
-    context
-  }
-
-  const statePath = join(runDir, 'state.json')
-  const recordPath = join(runDir, 'record.json')
-  const minutesPath = join(runDir, 'record.md')
-  const persist = () => writeJson(statePath, state)
-  // Oversized statement bodies land beside the record, not inside it.
-  const writeArtifact = async (relativePath: string, content: string): Promise<number> => {
-    const target = join(runDir, relativePath)
-    await writeText(target, content)
-    return new TextEncoder().encode(content).byteLength
-  }
-
-  let revisionNotes: string[] = []
-
-  const instructions = phaseInstructions(loaded, await readTableBody(options.configDir))
-
-  for (let attempt = 1; attempt <= loaded.table.maxAttempts; attempt++) {
-    state.attempt = attempt
-    options.onProgress?.(`roundtable: 第 ${attempt} 轮开始`)
-
-    const result = await runAttempt(attempt, {
-      loaded,
-      context,
-      topic: options.topic,
-      env: options.env,
-      budget: state.budget,
-      phaseInstructions: instructions,
-      revisionNotes,
-      persist,
-      callText: options.callText,
-      writeArtifact,
-      attempt,
-      events: {
-        onStatement: (statement) => {
-          const seat = loaded.byId.get(statement.seat)
-          const name = seat?.identity.name ?? statement.seat
-          options.onProgress?.(`  ${name} · ${statement.phase} · ${statement.status}`)
-        },
-        // Progress is positional only; the authoritative round data comes from
-        // runAttempt's return value so a partially filled state can never leak
-        // into the record.
-        onPhaseStart: (phase) => {
-          state.phaseId = phase.id
-          state.phaseIndex = loaded.phases.findIndex(item => item.id === phase.id)
-        },
-        onPhaseEnd: () => {
-          void persist()
-        }
-      }
-    })
-
-    state.rounds = state.rounds.filter(round => round.attempt !== attempt).concat(result.round)
-
-    if (result.stop) {
-      state.status = 'aborted'
-      state.error = result.stop === 'budget-exhausted'
-        ? `预算在阶段 "${state.phaseId ?? ''}" 耗尽`
-        : '有席位要求中止'
-      break
-    }
-
-    const passed = result.round.phases
-      .filter(phase => phase.judgement)
-      .every(phase => phase.judgement!.passed)
-    const anyJudged = result.round.phases.some(phase => phase.judgement)
-
-    // A meeting with no judgement anywhere is a production run: it succeeded
-    // if every phase completed, otherwise it produced nothing usable.
-    const completedAll = result.round.phases.every(phase => phase.status === 'completed')
-    if (anyJudged ? passed : completedAll) {
-      state.status = 'passed'
-      break
-    }
-
-    revisionNotes = collectRejectionNotes(result.round, loaded)
-    if (attempt === loaded.table.maxAttempts) {
-      state.status = 'rejected'
-      break
-    }
-
-    if (loaded.table.onVeto === 'abort') {
-      state.status = 'aborted'
-      state.error = '规则要求被否决即中止'
-      break
-    }
-    // `revise` and `re-propose` both loop; the difference is which phase the
-    // next attempt starts from, which the phase graph already encodes.
-    options.onProgress?.(`roundtable: 第 ${attempt} 轮未通过，进入第 ${attempt + 1} 轮`)
-  }
-
-  if (state.status === 'running') {
-    state.status = 'rejected'
-  }
-
-  state.finishedAt = new Date().toISOString()
-  // Every run reaching this point is finished: resume paths reconstruct a new
-  // run rather than continuing this one, so nothing here is resumable.
-  state.resumable = false
-
-  const record = buildRecord(state, loaded)
-  await writeJson(statePath, state)
-  await writeJson(recordPath, record)
-  await writeText(minutesPath, renderRecordMarkdown(record, loaded))
-
-  return {
-    status: record.status,
-    recordPath,
-    runDir,
-    record,
-    used: state.budget.used,
-    budgetTotal: state.budget.total
-  }
-}
-
-export interface ResumeOptions extends Omit<RoundtableOptions, 'outDir'> {
-  /** Run directory produced by a previous, interrupted execution. */
+interface RunnerContext {
+  loaded: LoadedRoundtable
+  state: RunState
   runDir: string
+  options: RoundtableOptions
+  persist: () => Promise<void>
+  writeArtifact: (relativePath: string, content: string) => Promise<number>
+  /** Started-at in epoch ms for the deadline; a resume keeps the original. */
+  startedAt: number
+  /** Monotonic-enough clock for deadlines and timestamps. */
+  now: () => number
+  /** Timestamp for the record, written in the caller's zone. */
+  stamp: () => string
 }
 
-/**
- * Continue an interrupted run from the phase that did not finish.
- *
- * Rules are fingerprinted: if a seat or the table changed, the previous
- * progress described a different meeting and cannot be resumed. That mirrors
- * "editing a prompt never rewrites an already-published draft".
- *
- * A run that already reached a terminal status is returned as-is rather than
- * re-executed: repeating a finished meeting would spend money to reach the same
- * answer.
- */
-export async function resumeRoundtable(options: ResumeOptions): Promise<RoundtableResult> {
-  const runDir = resolve(options.runDir)
-  const loaded = await loadRoundtable({ configDir: options.configDir, schema: RECORD_SCHEMA })
-  const state = await readState(runDir)
-  if (!state) {
-    throw new RoundtableConfigError(`No state.json in ${runDir}; nothing to resume`)
-  }
-  if (state.fingerprint !== loaded.fingerprint) {
-    throw new RoundtableConfigError(
-      'Rules changed since this run started; open a new meeting instead of resuming'
-    )
-  }
-
+async function writeOutputs(context: RunnerContext): Promise<RoundtableResult> {
+  const { loaded, state, runDir } = context
+  const record = buildRecord(state, loaded.table.title)
   const recordPath = join(runDir, 'record.json')
-  const minutesPath = join(runDir, 'record.md')
-  if (state.status !== 'running') {
-    const existing = buildRecord(state, loaded)
-    await writeJson(recordPath, existing)
-    await writeText(minutesPath, renderRecordMarkdown(existing, loaded))
-    return {
-      status: existing.status,
-      recordPath,
-      runDir,
-      record: existing,
-      used: state.budget.used,
-      budgetTotal: state.budget.total
-    }
-  }
-
-  const context = state.context.length
-    ? state.context
-    : toContextList(options.context)
-  const instructions = phaseInstructions(loaded, await readTableBody(options.configDir))
-  const persist = () => writeJson(join(runDir, 'state.json'), state)
-  const writeArtifact = async (relativePath: string, content: string): Promise<number> => {
-    await writeText(join(runDir, relativePath), content)
-    return new TextEncoder().encode(content).byteLength
-  }
-
-  // Start from the attempt that was interrupted; completed phases inside it are
-  // re-read from state so a resume never repeats finished work.
-  for (let attempt = state.rounds.length || 1; attempt <= loaded.table.maxAttempts; attempt++) {
-    state.attempt = attempt
-    options.onProgress?.(`roundtable: 续跑第 ${attempt} 轮`)
-
-    const donePhases: PhaseRecord[] = state.rounds.find(round => round.attempt === attempt)?.phases ?? []
-    // Resume at the first phase that has no completed record. A phase missing
-    // from `donePhases` never finished, and a phase present but not completed
-    // stopped midway; both must run. Everything before that is preserved.
-    const startPhase: number = loaded.phases.findIndex((phase) => {
-      const record = donePhases.find(item => item.id === phase.id)
-      return !record || record.status !== 'completed'
-    })
-    if (startPhase === -1) {
-      // Nothing left to run in this attempt; keep what we have.
-      state.status = donePhases.some(phase => phase.judgement && !phase.judgement.passed)
-        ? 'rejected'
-        : 'passed'
-      break
-    }
-    const startPhaseId: string | undefined = loaded.phases[startPhase]?.id
-    const revisionNotes = collectRejectionNotes(
-      { attempt: attempt - 1, phases: state.rounds.at(-1)?.phases ?? [] },
-      loaded
-    )
-
-    const result = await runAttempt(attempt, {
-      loaded,
-      context,
-      topic: state.topic ?? options.topic,
-      env: options.env,
-      budget: state.budget,
-      phaseInstructions: instructions,
-      revisionNotes,
-      persist,
-      callText: options.callText,
-      writeArtifact,
-      attempt,
-      // Finished phases stay available as input for the resumed ones.
-      completedPhases: donePhases.filter(phase => phase.status === 'completed'),
-      events: {
-        onStatement: (statement) => {
-          const seat = loaded.byId.get(statement.seat)
-          options.onProgress?.(`  ${seat?.identity.name ?? statement.seat} · ${statement.phase} · ${statement.status}`)
-        },
-        onPhaseStart: (phase) => {
-          state.phaseId = phase.id
-          state.phaseIndex = loaded.phases.findIndex(item => item.id === phase.id)
-        }
-      },
-      startPhaseId
-    })
-
-    // Rebuild the round in table order so finished phases stay at their
-    // position: a resumed attempt only produces the phases after the cut.
-    const merged: PhaseRecord[] = loaded.phases.map((phase) => {
-      const fresh = result.round.phases.find(item => item.id === phase.id)
-      if (fresh) {
-        return fresh
-      }
-      const previous = donePhases.find((item: PhaseRecord) => item.id === phase.id)
-      return previous ?? { id: phase.id, status: 'skipped', statements: [] }
-    })
-    state.rounds = state.rounds.filter(round => round.attempt !== attempt)
-      .concat({ attempt, phases: merged })
-
-    if (result.stop) {
-      state.status = 'aborted'
-      state.error = result.stop === 'budget-exhausted'
-        ? `预算在阶段 "${state.phaseId ?? ''}" 耗尽`
-        : '有席位要求中止'
-      break
-    }
-
-    const anyJudged = merged.some(phase => phase.judgement)
-    const passed = anyJudged && merged.every(phase => !phase.judgement || phase.judgement.passed)
-    if (anyJudged
-      ? passed
-      : merged.every(phase => phase.status === 'completed')) {
-      state.status = 'passed'
-      break
-    }
-    if (attempt === loaded.table.maxAttempts) {
-      state.status = 'rejected'
-      break
-    }
-    if (loaded.table.onVeto === 'abort') {
-      state.status = 'aborted'
-      state.error = '规则要求被否决即中止'
-      break
-    }
-  }
-
-  if (state.status === 'running') {
-    state.status = 'rejected'
-  }
-  state.finishedAt = new Date().toISOString()
-  state.resumable = false
-
-  const record = buildRecord(state, loaded)
   await writeJson(join(runDir, 'state.json'), state)
   await writeJson(recordPath, record)
-  await writeText(minutesPath, renderRecordMarkdown(record, loaded))
-
+  await writeText(join(runDir, 'record.md'), renderRecordMarkdown(record, loaded.byId))
   return {
     status: record.status,
     recordPath,
     runDir,
     record,
-    used: state.budget.used,
-    budgetTotal: state.budget.total
+    used: countCalls(state)
+  }
+}
+
+function countCalls(state: RunState): number {
+  return state.attempts.reduce((sum, attempt) => sum + attempt.statements.length, 0)
+}
+
+/**
+ * Run attempts until the meeting passes, aborts, or runs out of attempts.
+ *
+ * `state` is mutated in place and persisted after every landed statement, which
+ * is what makes a crash resumable: the pool on disk is the pool on the table.
+ */
+async function runLoop(context: RunnerContext, resumeFrom?: { pool: Statement[], startedAt: number }): Promise<RoundtableResult> {
+  const { loaded, state, options } = context
+  const table = loaded.table
+
+  for (;;) {
+    const attemptNumber = state.attempt
+    const attemptStarted = resumeFrom?.startedAt ?? context.now()
+    const startedAtIso = context.stamp()
+
+    state.status = 'running'
+    state.startedAt = state.startedAt || startedAtIso
+    // A resumed attempt keeps its original clock, so the remaining time is what
+    // is left, not a fresh `durationMs`.
+    const attempt: AttemptState = {
+      attempt: attemptNumber,
+      startedAt: startedAtIso,
+      statements: resumeFrom?.pool ?? []
+    }
+    state.attempts = state.attempts.filter(item => item.attempt !== attemptNumber)
+    state.attempts.push(attempt)
+    state.pool = attempt.statements
+
+    // A fresh round carries the previous round's reasons; a resumed round reuses
+    // what it was opened with, so the seats that speak after the crash still know
+    // why the table met again.
+    const notes = rejectionNotes(loaded, state.attempts.find(item => item.attempt === attemptNumber - 1))
+    if (resumeFrom) {
+      state.notes = state.notes ?? []
+    }
+    else {
+      state.notes = notes
+    }
+    await context.persist()
+
+    options.onProgress?.(`roundtable: 第 ${attemptNumber} 轮讨论开始`)
+
+    let abortedBy: string | undefined
+    try {
+      const result = await discuss({
+        loaded,
+        topic: state.topic,
+        brief: state.brief,
+        context: state.context,
+        env: options.env,
+        priorPool: resumeFrom?.pool?.length
+          ? [...resumeFrom.pool]
+          : undefined,
+        revisionNotes: state.notes?.length ? state.notes : undefined,
+        startedAt: attemptStarted,
+        attempt: attemptNumber,
+        callText: options.callText,
+        now: context.now,
+        writeArtifact: context.writeArtifact,
+        persist: context.persist,
+        events: {
+          onStatement: (statement) => {
+            options.onProgress?.(`  ${statement.name} · ${statement.status}`)
+          }
+        }
+      })
+      // Only the statements this run produced are new; a resumed pool was
+      // already on disk and is not written twice.
+      const fresh = result.statements.slice(resumeFrom?.pool?.length ?? 0)
+      attempt.statements.push(...fresh)
+      state.pool = attempt.statements
+      state.usage.input += result.usage.input
+      state.usage.output += result.usage.output
+      abortedBy = result.abortedBy?.seat
+      if (result.abortedBy) {
+        state.error = `席位 ${result.abortedBy.seat} 失败并要求中止：${result.abortedBy.error}`
+      }
+    }
+    catch (error) {
+      if (error instanceof RoundtableConfigError) {
+        throw error
+      }
+      state.status = 'failed'
+      state.error = error instanceof Error
+        ? error.message
+        : String(error)
+      state.finishedAt = context.stamp()
+      return writeOutputs(context)
+    }
+
+    attempt.finishedAt = context.stamp()
+    attempt.verdict = judgeAttempt(loaded, attempt.statements)
+    attempt.aborted = abortedBy !== undefined
+    await context.persist()
+
+    resumeFrom = undefined
+
+    if (attempt.aborted) {
+      state.status = 'aborted'
+      state.finishedAt = context.stamp()
+      return writeOutputs(context)
+    }
+
+    if (attempt.verdict.passed) {
+      state.status = 'passed'
+      state.finishedAt = context.stamp()
+      return writeOutputs(context)
+    }
+
+    // No statement and no vote from anyone: discussing further cannot change
+    // that, so the meeting is over rather than retried `maxAttempts` times.
+    const spoke = attempt.statements.some(statement => statement.status === 'completed')
+    if (!spoke) {
+      state.status = 'rejected'
+      state.error = '没有任何席位完成发言'
+      state.finishedAt = context.stamp()
+      return writeOutputs(context)
+    }
+
+    if (attemptNumber >= table.maxAttempts) {
+      state.status = 'rejected'
+      state.finishedAt = context.stamp()
+      return writeOutputs(context)
+    }
+
+    if (table.onVeto === 'abort') {
+      state.status = 'aborted'
+      state.error = '规则要求被否决即中止（onVeto: abort）'
+      state.finishedAt = context.stamp()
+      return writeOutputs(context)
+    }
+
+    // `re-propose` and `revise` both open another discussion; the difference is
+    // which veto reasons it may carry in, recorded in the attempt history.
+    state.attempt = attemptNumber + 1
+    options.onProgress?.(`roundtable: 第 ${attemptNumber} 轮未通过，进入第 ${attemptNumber + 1} 轮`)
   }
 }
 
@@ -433,9 +328,186 @@ async function readState(runDir: string): Promise<RunState | null> {
   const { readFile } = await import('node:fs/promises')
   try {
     const raw = await readFile(join(runDir, 'state.json'), 'utf8')
-    return JSON.parse(raw) as RunState
+    const parsed = JSON.parse(raw) as RunState
+    if (parsed && typeof parsed === 'object' && parsed.schema === RECORD_SCHEMA) {
+      return parsed
+    }
+    return null
   }
   catch {
     return null
+  }
+}
+
+/**
+ * Run one meeting.
+ *
+ * Business failure is a status, never an exception: a rejected meeting is a
+ * normal result and CI decides what to do with it. Only configuration and usage
+ * errors throw, because those mean the meeting could not start at all.
+ */
+export async function runRoundtable(options: RoundtableOptions): Promise<RoundtableResult> {
+  const topic = requireTopic(options.topic, 'runRoundtable')
+  const now = options.now ?? (() => Date.now())
+  const loaded = await loadRoundtable({ configDir: options.configDir })
+  const context = toContextList(options.context)
+  const outDir = resolve(options.outDir ?? defaultOutDir())
+  const runId = makeRunId()
+  const runDir = join(outDir, runId)
+  await mkdir(runDir, { recursive: true })
+
+  const state: RunState = {
+    schema: RECORD_SCHEMA,
+    runId,
+    status: 'running',
+    attempt: 1,
+    startedAt: isoLocal(new Date(now())),
+    topic,
+    brief: options.brief?.trim() || undefined,
+    context,
+    pool: [],
+    attempts: [],
+    usage: { input: 0, output: 0 },
+    fingerprint: loaded.fingerprint
+  }
+
+  const persist = async (): Promise<void> => {
+    await writeJson(join(runDir, 'state.json'), state)
+  }
+  const writeArtifact = async (relativePath: string, content: string): Promise<number> => {
+    await writeText(join(runDir, relativePath), content)
+    return new TextEncoder().encode(content).byteLength
+  }
+
+  return runLoop({
+    loaded,
+    state,
+    runDir,
+    options: {
+      ...options,
+      topic
+    },
+    persist,
+    writeArtifact,
+    startedAt: now(),
+    now,
+    stamp: () => isoLocal(new Date(now()))
+  })
+}
+
+export interface ResumeOptions extends Omit<RoundtableOptions, 'outDir' | 'topic'> {
+  /** Run directory produced by a previous, interrupted execution. */
+  runDir: string
+  /** Needed only when `state.json` predates the topic field. */
+  topic?: string
+}
+
+/**
+ * Continue an interrupted discussion.
+ *
+ * The rules are fingerprinted: if a seat or the table changed, the progress on
+ * disk describes a different meeting and cannot be resumed — that mirrors
+ * "editing a prompt never rewrites an already-published draft".
+ *
+ * A run that already reached a terminal status is re-rendered from its state
+ * rather than executed again: repeating a finished meeting would spend money to
+ * reach the same answer.
+ */
+export async function resumeRoundtable(options: ResumeOptions): Promise<RoundtableResult> {
+  const runDir = resolve(options.runDir)
+  const now = options.now ?? (() => Date.now())
+  const loaded = await loadRoundtable({ configDir: options.configDir })
+  const state = await readState(runDir)
+  if (!state) {
+    throw new RoundtableConfigError(`No resumable state.json in ${runDir}`)
+  }
+  if (state.fingerprint !== loaded.fingerprint) {
+    throw new RoundtableConfigError('Rules changed since this run started; open a new meeting instead of resuming')
+  }
+  if (!state.topic) {
+    state.topic = requireTopic(options.topic, 'resumeRoundtable')
+  }
+
+  const persist = async (): Promise<void> => {
+    await writeJson(join(runDir, 'state.json'), state)
+  }
+  const writeArtifact = async (relativePath: string, content: string): Promise<number> => {
+    await writeText(join(runDir, relativePath), content)
+    return new TextEncoder().encode(content).byteLength
+  }
+
+  const context: RunnerContext = {
+    loaded,
+    state,
+    runDir,
+    options: {
+      ...options,
+      configDir: options.configDir,
+      topic: state.topic
+    },
+    persist,
+    writeArtifact,
+    // A resume keeps the original start for the deadline, but a finished run is
+    // re-rendered with the caller's clock, so nothing waits on wall time again.
+    startedAt: Date.parse(state.startedAt) || now(),
+    now,
+    stamp: () => isoLocal(new Date(now()))
+  }
+
+  // A finished meeting is re-rendered, never re-run.
+  if (state.status !== 'running') {
+    if (!state.finishedAt) {
+      state.finishedAt = context.stamp()
+    }
+    return writeOutputs(context)
+  }
+
+  // The interrupted attempt is re-opened, not restarted: its statements are
+  // already on the table, and its remaining time is what is left of
+  // `durationMs` from the original start.
+  const elapsed = context.now() - context.startedAt
+  const remaining = loaded.table.durationMs - elapsed
+  if (remaining <= 0) {
+    options.onProgress?.('roundtable: 剩余时间为 0，直接进入裁决')
+    const attempt = state.attempts.find(item => item.attempt === state.attempt)
+    if (attempt) {
+      attempt.statements = state.pool
+      attempt.finishedAt = context.stamp()
+      attempt.verdict = judgeAttempt(loaded, attempt.statements)
+      state.status = attempt.verdict.passed
+        ? 'passed'
+        : 'rejected'
+      state.finishedAt = context.stamp()
+    }
+    else {
+      state.status = 'failed'
+      state.error = '没有可续跑的轮次'
+      state.finishedAt = context.stamp()
+    }
+    return writeOutputs(context)
+  }
+
+  options.onProgress?.(`roundtable: 续跑第 ${state.attempt} 轮，剩余 ${Math.ceil(remaining / 1000)} 秒`)
+  // Re-open the attempt with its own clock rather than a fresh one, so the
+  // deadline is "startedAt + durationMs" exactly once.
+  return runLoop(context, {
+    pool: state.pool ?? [],
+    startedAt: context.startedAt
+  })
+}
+
+/** Convenience for callers that only want a validity answer. */
+export async function validateRoundtable(options: { configDir: string }): Promise<{ ok: true } | { ok: false, message: string }> {
+  try {
+    await loadRoundtable(options)
+    return { ok: true }
+  }
+  catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error
+        ? error.message
+        : String(error)
+    }
   }
 }
