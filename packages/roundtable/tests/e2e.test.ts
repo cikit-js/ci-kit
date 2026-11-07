@@ -234,6 +234,35 @@ describe('runRoundtable', () => {
     expect(result.status).toBe('rejected')
     expect(result.record.verdict.score).toBeCloseTo(2 / 3)
     expect(result.record.verdict.vetoed).toEqual(['uther'])
+    // The human-readable minutes name the seat that blocked it, not its id.
+    const vetoedRun = await readRun(result.runDir)
+    expect(vetoedRun.minutes).toContain('**结论**：未通过（通过率')
+    expect(vetoedRun.minutes).toContain('乌瑟尔否决')
+  })
+
+  it('opens another discussion for onVeto revise just as for re-propose', async () => {
+    const dir = await makeConfig({
+      table: TABLE
+        .replace('onVeto: re-propose', 'onVeto: revise')
+        .replace('durationMs: 60000', 'durationMs: 2000'),
+      seats: { 'grom.md': SEATS['grom.md'], 'uther.md': SEATS['uther.md'] }
+    })
+    const { callText, calls } = stubText({
+      reply: seatReplies({
+        '乌瑟尔。': JSON.stringify({ verdict: 'reject', reason: '方向对但做法不对' })
+      })
+    })
+    const result = await runRoundtable({
+      configDir: dir,
+      topic: 'q',
+      outDir: join(dir, 'out'),
+      callText,
+      now: clock().now
+    })
+    expect(result.record.attempts).toBe(2)
+    const secondRound = calls.filter(call => call.prompt.includes('## 上一轮的否决理由'))
+    expect(secondRound.length).toBeGreaterThan(0)
+    expect(secondRound[0]!.prompt).toContain('方向对但做法不对')
   })
 
   it('aborts immediately when onVeto is abort and the table is vetoed', async () => {
