@@ -1,44 +1,27 @@
 import type { Document } from './frontmatter'
-import type { Seat } from './seat'
-import type { YamlMapping, YamlValue } from './yaml'
 
-export type PhaseMode = 'serial' | 'parallel'
+/** What the meeting does after a veto. */
 export type OnVeto = 're-propose' | 'revise' | 'abort'
 
-export interface Phase {
-  id: string
-  /** Seats named here; empty means "derive from every seat's seat.phase". */
-  seats: string[]
-  vetoable: boolean
-  requires: string[]
-  mode: PhaseMode
-}
-
-export interface Budget {
-  total?: number
-  perSeat?: number
-}
-
+/**
+ * How this meeting is held: how long, how much input, how it is judged.
+ *
+ * It never says what to discuss — the topic arrives at run time, because the
+ * table is written before anyone knows what today's meeting is about.
+ */
 export interface Table {
+  /** Meeting name; falls back to the config directory name. */
   title: string
-  schedule?: string
-  budget: Budget
-  onVeto: OnVeto
-  maxAttempts: number
+  /** How long the whole discussion runs. */
+  durationMs: number
+  /** Upper bound for the shared pool, in tokens; the oldest statements go first. */
+  maxPoolTokens: number
+  /** Weighted pass ratio in 0–1 that counts as approved. */
   threshold: number
-  /**
-   * How long one seat's model call may take. Undefined keeps the http
-   * package's default.
-   *
-   * A seat reads a whole article and replies with paragraphs, which routinely
-   * needs more than the transport default meant for short requests. The table
-   * owns this because "how long may a seat think" is a property of the review,
-   * not of the provider.
-   */
-  timeoutMs?: number
-  phases: Phase[]
-  /** Phase ids given the special roles, resolved during validation. */
-  special: { propose: string, converge: string }
+  /** Action taken when the discussion ends in a veto. */
+  onVeto: OnVeto
+  /** How many attempts the meeting may take in total. */
+  maxAttempts: number
 }
 
 export class TableError extends Error {
@@ -48,139 +31,84 @@ export class TableError extends Error {
   }
 }
 
+/** Contract defaults; the docs table is the single source of these numbers. */
+export const TABLE_DEFAULTS = {
+  durationMs: 180_000,
+  maxPoolTokens: 3000,
+  threshold: 0.5,
+  onVeto: 're-propose',
+  maxAttempts: 3
+} as const
+
+const ON_VETO: readonly OnVeto[] = ['re-propose', 'revise', 'abort']
+
 const TABLE_KEYS = new Set([
   'title',
-  'schedule',
-  'budget',
-  'onVeto',
-  'maxAttempts',
+  'durationMs',
+  'maxPoolTokens',
   'threshold',
-  'timeoutMs',
-  'phases',
-  'special'
-])
-const PHASE_KEYS = new Set([
-  'id',
-  'seats',
-  'vetoable',
-  'requires',
-  'mode'
+  'onVeto',
+  'maxAttempts'
 ])
 
-function asString(value: unknown, field: string): string | undefined {
+function has(data: Record<string, unknown>, key: string): boolean {
+  return data[key] !== undefined && data[key] !== null
+}
+
+function asTitle(value: unknown, fallback: string): string {
   if (value === undefined || value === null) {
-    return undefined
+    return fallback
   }
   if (typeof value !== 'string') {
-    throw new TableError(`table: ${field} must be a string`)
+    throw new TableError('table: title must be a string')
   }
   const trimmed = value.trim()
   return trimmed === ''
-    ? undefined
+    ? fallback
     : trimmed
 }
 
-function asNumber(value: unknown, field: string): number | undefined {
+/** Positive integers only; no strings, no decimals, no zero. */
+function asPositiveInteger(value: unknown, field: string, fallback: number): number {
   if (value === undefined || value === null) {
-    return undefined
+    return fallback
   }
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new TableError(`table: ${field} must be a number`)
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new TableError(`table: ${field} must be a positive integer`)
   }
   return value
 }
 
-function asStringList(value: YamlValue | undefined, field: string): string[] {
+function asThreshold(value: unknown): number {
   if (value === undefined || value === null) {
-    return []
+    return TABLE_DEFAULTS.threshold
   }
-  const items = Array.isArray(value)
-    ? value
-    : [value]
-  return items.map((item) => {
-    if (typeof item !== 'string' || !item.trim()) {
-      throw new TableError(`table: ${field} must contain non-empty strings`)
-    }
-    return item.trim()
-  })
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new TableError('table: threshold must be a number')
+  }
+  if (value < 0 || value > 1) {
+    throw new TableError('table: threshold must be between 0 and 1')
+  }
+  return value
 }
 
-function asMapping(value: unknown, field: string): YamlMapping {
+function asOnVeto(value: unknown): OnVeto {
   if (value === undefined || value === null) {
-    return {}
+    return TABLE_DEFAULTS.onVeto
   }
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    throw new TableError(`table: ${field} must be a mapping`)
+  if (typeof value !== 'string' || !ON_VETO.includes(value as OnVeto)) {
+    throw new TableError('table: onVeto must be re-propose, revise or abort')
   }
-  return value as YamlMapping
+  return value as OnVeto
 }
 
-function parsePhases(value: YamlValue | undefined): Phase[] {
-  if (value === undefined || value === null) {
-    throw new TableError('table: phases is required')
-  }
-  if (!Array.isArray(value)) {
-    throw new TableError('table: phases must be a list')
-  }
-  return value.map((item, index) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new TableError(`table: phases[${index}] must be a mapping`)
-    }
-    const raw = item as YamlMapping
-    const unknown = Object.keys(raw).filter(key => !PHASE_KEYS.has(key))
-    if (unknown.length) {
-      throw new TableError(`table: phases[${index}] has unknown field(s): ${unknown.join(', ')}`)
-    }
-    const id = asString(raw.id, `phases[${index}].id`)
-    if (!id) {
-      throw new TableError(`table: phases[${index}].id is required`)
-    }
-    const mode = (asString(raw.mode, `phases[${index}].mode`) ?? 'serial') as PhaseMode
-    if (mode !== 'serial' && mode !== 'parallel') {
-      throw new TableError(`table: phases[${index}].mode must be serial or parallel`)
-    }
-    if (raw.vetoable !== undefined && raw.vetoable !== null && typeof raw.vetoable !== 'boolean') {
-      throw new TableError(`table: phases[${index}].vetoable must be true or false`)
-    }
-    return {
-      id,
-      seats: asStringList(raw.seats, `phases[${index}].seats`),
-      vetoable: raw.vetoable === true,
-      requires: asStringList(raw.requires, `phases[${index}].requires`),
-      mode
-    }
-  })
-}
-
-/** Resolve `special` by explicit value, then by name, then by position. */
-function resolveSpecial(
-  phases: Phase[],
-  special: YamlMapping
-): { propose: string, converge: string } {
-  const ids = phases.map(phase => phase.id)
-  const declaredPropose = asString(special.propose, 'special.propose')
-  const declaredConverge = asString(special.converge, 'special.converge')
-
-  const propose = declaredPropose
-    ?? (ids.includes('propose')
-      ? 'propose'
-      : phases[0]!.id)
-  const converge = declaredConverge
-    ?? (ids.includes('converge')
-      ? 'converge'
-      : phases[phases.length - 1]!.id)
-
-  for (const [field, id] of [
-    ['propose', propose],
-    ['converge', converge]
-  ] as const) {
-    if (!ids.includes(id)) {
-      throw new TableError(`table: special.${field} points at unknown phase "${id}"`)
-    }
-  }
-  return { propose, converge }
-}
-
+/**
+ * Read `table.md` frontmatter into a Table.
+ *
+ * Unknown fields are errors, not ignored: a leftover `phase` or `mode` would
+ * otherwise look configured while changing nothing. The body is documentation
+ * for humans and takes no part in the run.
+ */
 export function parseTable(document: Document, fallbackTitle: string): Table {
   const data = document.data
   const unknown = Object.keys(data).filter(key => !TABLE_KEYS.has(key))
@@ -188,133 +116,14 @@ export function parseTable(document: Document, fallbackTitle: string): Table {
     throw new TableError(`table: unknown field(s): ${unknown.join(', ')}`)
   }
 
-  const budgetRaw = asMapping(data.budget, 'budget')
-  const budgetUnknown = Object.keys(budgetRaw).filter(key => key !== 'total' && key !== 'perSeat')
-  if (budgetUnknown.length) {
-    throw new TableError(`table: budget has unknown field(s): ${budgetUnknown.join(', ')}`)
-  }
-  const total = asNumber(budgetRaw.total, 'budget.total')
-  const perSeat = asNumber(budgetRaw.perSeat, 'budget.perSeat')
-  if (total !== undefined && total < 0) {
-    throw new TableError('table: budget.total must not be negative')
-  }
-  if (perSeat !== undefined && perSeat < 0) {
-    throw new TableError('table: budget.perSeat must not be negative')
-  }
-
-  const onVeto = (asString(data.onVeto, 'onVeto') ?? 're-propose') as OnVeto
-  if (!['re-propose', 'revise', 'abort'].includes(onVeto)) {
-    throw new TableError('table: onVeto must be re-propose, revise or abort')
-  }
-
-  const maxAttempts = asNumber(data.maxAttempts, 'maxAttempts') ?? 3
-  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
-    throw new TableError('table: maxAttempts must be a positive integer')
-  }
-
-  const threshold = asNumber(data.threshold, 'threshold') ?? 0.5
-  if (threshold <= 0 || threshold > 1) {
-    throw new TableError('table: threshold must be greater than 0 and at most 1')
-  }
-
-  // Undefined keeps the transport default; a stated value must be usable as a
-  // real timeout, so reject anything too small to finish a sentence or so
-  // large that a hung request outlives the caller's own patience.
-  const timeoutMs = asNumber(data.timeoutMs, 'timeoutMs')
-  if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 3_600_000)) {
-    throw new TableError('table: timeoutMs must be an integer between 1000 and 3600000')
-  }
-
-  const phases = parsePhases(data.phases)
-  if (!phases.length) {
-    throw new TableError('table: at least one phase is required')
-  }
-  const seen = new Set<string>()
-  for (const phase of phases) {
-    if (seen.has(phase.id)) {
-      throw new TableError(`table: duplicate phase id "${phase.id}"`)
-    }
-    seen.add(phase.id)
-  }
-
   return {
-    title: asString(data.title, 'title') ?? fallbackTitle,
-    schedule: asString(data.schedule, 'schedule'),
-    budget: { total, perSeat },
-    onVeto,
-    maxAttempts,
-    threshold,
-    timeoutMs,
-    phases,
-    special: resolveSpecial(phases, asMapping(data.special, 'special'))
+    title: has(data, 'title')
+      ? asTitle(data.title, fallbackTitle)
+      : fallbackTitle,
+    durationMs: asPositiveInteger(data.durationMs, 'durationMs', TABLE_DEFAULTS.durationMs),
+    maxPoolTokens: asPositiveInteger(data.maxPoolTokens, 'maxPoolTokens', TABLE_DEFAULTS.maxPoolTokens),
+    threshold: asThreshold(data.threshold),
+    onVeto: asOnVeto(data.onVeto),
+    maxAttempts: asPositiveInteger(data.maxAttempts, 'maxAttempts', TABLE_DEFAULTS.maxAttempts)
   }
-}
-
-/**
- * Cross-check table and seats, then fill in each phase's seat list.
- *
- * Two declarations of membership exist (table seats and seat.phase). They are
- * intersected, and a seat named in the table but not attending that phase is an
- * error: silently dropping it would make a typo look like a working meeting.
- */
-export function resolvePhases(table: Table, seats: Seat[], allPhaseIds: string[]): Phase[] {
-  const byId = new Map(seats.map(seat => [seat.id, seat]))
-
-  for (const phase of table.phases) {
-    for (const seatId of phase.seats) {
-      if (!byId.has(seatId)) {
-        throw new TableError(`table: phase "${phase.id}" names unknown seat "${seatId}"`)
-      }
-    }
-    for (const required of phase.requires) {
-      if (!allPhaseIds.includes(required)) {
-        throw new TableError(`table: phase "${phase.id}" requires unknown phase "${required}"`)
-      }
-      if (required === phase.id) {
-        throw new TableError(`table: phase "${phase.id}" cannot require itself`)
-      }
-    }
-  }
-
-  // Explicit requires may create cycles; detect before execution.
-  const order = new Map(table.phases.map((phase, index) => [phase.id, index]))
-  for (const phase of table.phases) {
-    const deps = phase.requires.length
-      ? phase.requires
-      : order.get(phase.id)! > 0
-        ? [table.phases[order.get(phase.id)! - 1]!.id]
-        : []
-    for (const dep of deps) {
-      if (order.get(dep)! > order.get(phase.id)!) {
-        throw new TableError(`table: phase "${phase.id}" requires "${dep}" which comes later; phases run in order`)
-      }
-    }
-  }
-
-  return table.phases.map((phase) => {
-    const participating = seats
-      .filter(seat => seat.enabled)
-      .filter(seat => (phase.seats.length
-        ? phase.seats.includes(seat.id)
-        : true))
-      .filter((seat) => {
-        const declared = seat.seat.phase
-        if (!declared.length) {
-          return true
-        }
-        if (!declared.includes(phase.id)) {
-          if (phase.seats.includes(seat.id)) {
-            throw new TableError(
-              `seat "${seat.id}" is listed in phase "${phase.id}" but its seat.phase does not include it`
-            )
-          }
-          return false
-        }
-        return true
-      })
-      .sort((a, b) => a.seat.priority - b.seat.priority || a.id.localeCompare(b.id))
-      .map(seat => seat.id)
-
-    return { ...phase, seats: participating }
-  })
 }

@@ -1,9 +1,12 @@
 import type { Document } from './frontmatter'
 import type { YamlMapping, YamlValue } from './yaml'
 
-export type Sees = 'all' | 'none' | 'lead-only' | string[]
+/** What a seat can hear from the pool. `none` keeps an independent judgement independent. */
+export type Sees = 'all' | 'none'
+/** What happens to the meeting when this seat's call fails. */
 export type Fallback = 'skip' | 'retry' | 'abort'
-export type SeatOutput = 'text' | 'json' | 'markdown'
+/** `json` is what lets a seat vote; `text` only speaks. */
+export type SeatOutput = 'text' | 'json'
 
 export interface SeatIdentity {
   name: string
@@ -24,20 +27,13 @@ export interface SeatPersona {
 }
 
 export interface SeatPowers {
-  /** Phase ids this seat attends; empty means every phase. */
-  phase: string[]
   sees: Sees
-  canPropose: boolean
   canVeto: boolean
-  lead: boolean
   weight: number
-  priority: number
-  budget?: number
+  /** Upper bound for one statement, in tokens. */
+  maxTokens: number
   fallback: Fallback
   output: SeatOutput
-  model?: string
-  temperature?: number
-  maxTokens?: number
 }
 
 export interface Seat {
@@ -47,7 +43,7 @@ export interface Seat {
   identity: SeatIdentity
   persona: SeatPersona
   seat: SeatPowers
-  /** Markdown body, used verbatim as the seat's instructions. */
+  /** Markdown body, appended verbatim after the rendered persona. */
   body: string
   /** File the seat came from, for error messages only. */
   source: string
@@ -59,6 +55,17 @@ export class SeatError extends Error {
     this.name = 'SeatError'
   }
 }
+
+/** Contract defaults; the docs table is the single source of these numbers. */
+export const SEAT_DEFAULTS = {
+  enabled: true,
+  sees: 'all',
+  canVeto: false,
+  weight: 1,
+  maxTokens: 80,
+  fallback: 'skip',
+  output: 'text'
+} as const
 
 const TOP_LEVEL_KEYS = new Set([
   'id',
@@ -84,22 +91,21 @@ const PERSONA_KEYS = new Set([
   'avoid'
 ])
 const SEAT_KEYS = new Set([
-  'phase',
   'sees',
-  'canPropose',
   'canVeto',
-  'lead',
   'weight',
-  'priority',
-  'budget',
+  'maxTokens',
   'fallback',
-  'output',
-  'model',
-  'temperature',
-  'maxTokens'
+  'output'
 ])
 
-/** Fields accepted at the top level for projects that have not migrated yet. */
+/**
+ * Fields accepted at the top level for projects that have not migrated yet.
+ *
+ * The contract allows one layer of flat seating: a prompt file such as
+ * `name: 周慎` can become a seat without being regrouped first. A field written
+ * both ways is an error, because guessing which copy wins hides a real mistake.
+ */
 const FLAT_ALIASES = new Map<string, 'identity' | 'persona' | 'seat'>([
   ...[
     'name',
@@ -117,19 +123,12 @@ const FLAT_ALIASES = new Map<string, 'identity' | 'persona' | 'seat'>([
     'avoid'
   ].map(key => [key, 'persona'] as const),
   ...[
-    'phase',
     'sees',
-    'canPropose',
     'canVeto',
-    'lead',
     'weight',
-    'priority',
-    'budget',
+    'maxTokens',
     'fallback',
-    'output',
-    'model',
-    'temperature',
-    'maxTokens'
+    'output'
   ].map(key => [key, 'seat'] as const)
 ])
 
@@ -168,6 +167,7 @@ function asNumber(value: YamlValue | undefined, label: string, field: string): n
   if (value === undefined || value === null) {
     return undefined
   }
+  // No implicit conversion: `weight: "two"` is a typo, not a number.
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new SeatError(label, `${field} must be a number`)
   }
@@ -239,27 +239,48 @@ function groupData(data: YamlMapping, label: string) {
 
 function parseSees(value: YamlValue | undefined, label: string): Sees {
   if (value === undefined || value === null) {
-    return 'all'
+    return SEAT_DEFAULTS.sees
   }
-  if (Array.isArray(value)) {
-    const ids = asStringList(value, label, 'seat.sees')
-    if (!ids.length) {
-      throw new SeatError(label, 'seat.sees list must not be empty; use "all" or "none"')
-    }
-    return ids
-  }
-  if (value === 'all' || value === 'none' || value === 'lead-only') {
+  if (value === 'all' || value === 'none') {
     return value
   }
-  throw new SeatError(label, `seat.sees must be all, none, lead-only or a list of seat ids; got "${String(value)}"`)
+  throw new SeatError(label, `seat.sees must be "all" or "none"; got ${JSON.stringify(value)}`)
 }
 
-/** Render the seat persona block that precedes the Markdown body. */
+function parseFallback(value: YamlValue | undefined, label: string): Fallback {
+  if (value === undefined || value === null) {
+    return SEAT_DEFAULTS.fallback
+  }
+  if (value === 'skip' || value === 'retry' || value === 'abort') {
+    return value
+  }
+  throw new SeatError(label, `seat.fallback must be skip, retry or abort; got ${JSON.stringify(value)}`)
+}
+
+function parseOutput(value: YamlValue | undefined, label: string): SeatOutput {
+  if (value === undefined || value === null) {
+    return SEAT_DEFAULTS.output
+  }
+  if (value === 'text' || value === 'json') {
+    return value
+  }
+  throw new SeatError(label, `seat.output must be text or json; got ${JSON.stringify(value)}`)
+}
+
+/**
+ * Render the persona block that precedes the Markdown body.
+ *
+ * Order is fixed: identity → personality → stance → speech → values → bounds →
+ * body. Empty sections are dropped whole, title included, so a seat that declares
+ * only a name never shows an empty "## 你的立场" to the model.
+ */
 export function renderSeatSystemPrompt(seat: Seat): string {
   const lines: string[] = []
   const { identity, persona } = seat
 
-  const headline = [identity.title, `是一名${seat.role}`].filter(Boolean).join('，')
+  // Name falls back to role at parse time, so a seat without a title still gets
+  // a sentence instead of a dangling「，」.
+  const headline = identity.title ?? `是一名${seat.role}`
   lines.push(`你是${identity.name}，${headline}。`)
 
   if (identity.background) {
@@ -308,34 +329,26 @@ export function parseSeat(document: Document, source: string): Seat {
   if (!/^[\w-]+$/.test(id)) {
     throw new SeatError(label, `id "${id}" must use letters, digits, underscore or hyphen`)
   }
+  // Required: a seat with no stated function cannot be explained in a log line.
   const role = requireString(document.data.role as YamlValue, label, 'role')
 
-  const weight = asNumber(seat.weight, label, 'seat.weight') ?? 1
+  const weight = asNumber(seat.weight, label, 'seat.weight') ?? SEAT_DEFAULTS.weight
   if (weight <= 0) {
     throw new SeatError(label, 'seat.weight must be greater than 0')
   }
-  const budget = asNumber(seat.budget, label, 'seat.budget')
-  if (budget !== undefined && budget < 0) {
-    throw new SeatError(label, 'seat.budget must not be negative')
+  const maxTokens = asNumber(seat.maxTokens, label, 'seat.maxTokens') ?? SEAT_DEFAULTS.maxTokens
+  if (!Number.isInteger(maxTokens) || maxTokens < 1) {
+    throw new SeatError(label, 'seat.maxTokens must be a positive integer')
   }
-
-  const fallback = (asString(seat.fallback, label, 'seat.fallback') ?? 'skip') as Fallback
-  if (!['skip', 'retry', 'abort'].includes(fallback)) {
-    throw new SeatError(label, 'seat.fallback must be skip, retry or abort')
-  }
-  const output = (asString(seat.output, label, 'seat.output') ?? 'text') as SeatOutput
-  if (!['text', 'json', 'markdown'].includes(output)) {
-    throw new SeatError(label, 'seat.output must be text, json or markdown')
-  }
-
-  const name = asString(identity.name, label, 'identity.name') ?? role
 
   return {
     id,
     role,
-    enabled: asBoolean(document.data.enabled as YamlValue, label, 'enabled', true),
+    enabled: asBoolean(document.data.enabled as YamlValue, label, 'enabled', SEAT_DEFAULTS.enabled),
     identity: {
-      name,
+      // The name only exists for readability in the record; the role is the
+      // stated function and is guaranteed to be there.
+      name: asString(identity.name, label, 'identity.name') ?? role,
       avatar: asString(identity.avatar, label, 'identity.avatar'),
       title: asString(identity.title, label, 'identity.title'),
       background: asString(identity.background, label, 'identity.background')
@@ -350,19 +363,12 @@ export function parseSeat(document: Document, source: string): Seat {
       avoid: asString(persona.avoid, label, 'persona.avoid')
     },
     seat: {
-      phase: asStringList(seat.phase, label, 'seat.phase'),
       sees: parseSees(seat.sees, label),
-      canPropose: asBoolean(seat.canPropose, label, 'seat.canPropose', false),
-      canVeto: asBoolean(seat.canVeto, label, 'seat.canVeto', false),
-      lead: asBoolean(seat.lead, label, 'seat.lead', false),
+      canVeto: asBoolean(seat.canVeto, label, 'seat.canVeto', SEAT_DEFAULTS.canVeto),
       weight,
-      priority: asNumber(seat.priority, label, 'seat.priority') ?? 99,
-      budget,
-      fallback,
-      output,
-      model: asString(seat.model, label, 'seat.model'),
-      temperature: asNumber(seat.temperature, label, 'seat.temperature'),
-      maxTokens: asNumber(seat.maxTokens, label, 'seat.maxTokens')
+      maxTokens,
+      fallback: parseFallback(seat.fallback, label),
+      output: parseOutput(seat.output, label)
     },
     body: document.body,
     source
