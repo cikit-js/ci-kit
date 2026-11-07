@@ -82,10 +82,9 @@
 
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `sees` | `all` \| `none` | `all` | 看得见池内全部发言，或什么都看不见 |
 | `canVeto` | boolean | `false` | 一票否决权 |
 | `weight` | number | `1` | 表决权重 |
-| `maxTokens` | number | `80` | 单次发言的 token 上限，约 55 字 |
+| `maxTokens` | number | `600` | 单次调用的正文预算；思考内容不计入这个字段的语义 |
 | `fallback` | `skip` \| `retry` \| `abort` | `skip` | 调用失败时的策略 |
 | `output` | `text` \| `json` | `text` | 产出类型；`json` 才能投出结构化判断 |
 
@@ -93,8 +92,16 @@
 
 #### 三个最关键的字段
 
-1. **`sees`** — 「讨论」与「独立判断」的分界线。默认 `all`（像真圆桌，互相听得见）；独立审核席位显式写 `none`，避免读到别人的意见后附和。
+1. **`maxTokens`** — 单次调用的输出上限。思考型模型的推理与正文共用这个额度，需要配合 `table.md` 的 `reasoningEffort` 使用。发言的长短靠席位提示词里的「只说一句话」控制，这个字段只防跑飞。
 2. **`maxTokens` + `fallback`** — 发言长度由 `maxTokens` 封顶，避免变成长篇大论；`fallback` 防止单个席位拖死整场会。
+
+#### maxTokens 是「正文预算」，不是「席位能说几个字」
+
+思考型模型（如 GLM-5.3-Flash）先产出内部推理，再产出正文，两者**共用同一个 `max_tokens` 上限**。按「一句话 20 字 ≈ 60 token」来定这个值，推理就会把额度吃光，正文返回空串，席位整场失声。
+
+实测 GLM-5.3-Flash 在圆桌提示词下：80 token 正文为空（`finish_reason: length`），600 token 稳定输出 20 余字正文。**因此默认 600**，且这个字段的语义是「留够推理之后再给正文留余量」，不是字数换算。
+
+圆桌不提供独立的思考预算配置。控制发言长短靠席位提示词里的「只说一句话」，`maxTokens` 只负责防止跑飞。
 3. **`canVeto`** — 让圆桌能表达「有的事必须一票否决」。任一可否决席位否决即为否决，多人表决用 `weight` 表达，两者不混用。
 
 ## 完整示例
@@ -120,7 +127,6 @@ persona:
   avoid: 不做风格评价，只管事实
 
 seat:
-  sees: none
   canVeto: true
   weight: 2
   maxTokens: 80

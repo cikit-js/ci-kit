@@ -11,6 +11,7 @@
 title: 文章审核圆桌
 durationMs: 180000
 maxPoolTokens: 3000
+reasoningEffort: low
 
 threshold: 0.6
 onVeto: abort
@@ -25,6 +26,7 @@ maxAttempts: 1
 | `title` | string | 目录名 | 会议名称，写入 `record.md` 标题 |
 | `durationMs` | number | `180000` | 这场讨论开多久（3 分钟） |
 | `maxPoolTokens` | number | `3000` | 发言池上限，超出时丢弃最早发言 |
+| `reasoningEffort` | enum | 不传 | 思考强度：`none` / `low` / `medium` / `high` / `max`。不传时用厂商默认 |
 | `threshold` | number | `0.5` | 加权通过率门槛，0–1 |
 | `onVeto` | enum | `re-propose` | 被否决后的动作：`re-propose` / `revise` / `abort` |
 | `maxAttempts` | number | `3` | 最多循环几轮 |
@@ -56,7 +58,7 @@ maxAttempts: 1
 | 想达到的效果 | 做法 |
 | --- | --- |
 | 某席位最后归纳大家意见 | 在它的席位正文里写「你负责在讨论中归纳」，模型会据此行动 |
-| 某席位保持独立判断 | `sees: none`，它看不见别人说的 |
+| 某席位做独立判断 | 在它的席位正文里写「先自己判断，不要跟着别人」 |
 | 某席位有否决权 | `canVeto: true` |
 | 某席位说得比别人少 | 调低它的 `seat.maxTokens` |
 
@@ -84,7 +86,7 @@ maxAttempts: 1
 | --- | --- | --- |
 | `durationMs` | 整场会开多久 | 不再发起新请求，讨论结束 |
 | `maxPoolTokens` | 每次请求的输入长度 | 丢弃池内最早的发言，滚动前进 |
-| `seat.maxTokens` | 单次发言长度（默认 80） | 模型输出被截断 |
+| `seat.maxTokens` | 单次调用的正文预算（默认 600） | 模型输出被截断 |
 
 ### 发言池上限
 
@@ -151,6 +153,7 @@ maxAttempts: 1
 title: 文章审核圆桌
 durationMs: 180000
 maxPoolTokens: 5000
+reasoningEffort: low
 
 threshold: 0.6
 onVeto: abort
@@ -194,7 +197,6 @@ persona:
   style: 冷静、不带情绪
 
 seat:
-  sees: all
   canVeto: true
   weight: 1
   maxTokens: 80
