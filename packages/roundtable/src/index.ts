@@ -5,7 +5,7 @@ import type { AttemptState, RecordVerdict, RoundtableRecord, RunState } from './
 import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { defaultOutDir, loadRoundtable, RoundtableConfigError } from './config'
-import { discuss, finalVotes, planFrom } from './engine'
+import { discuss, finalVotes, outputFrom } from './engine'
 import { buildRecord, isoLocal, makeRunId, RECORD_SCHEMA, renderRecordMarkdown, writeJson, writeText } from './record'
 import { judgeMeeting, readVerdict, vetoReason } from './verdict'
 
@@ -13,7 +13,7 @@ export { checkRoundtable, defaultOutDir, loadRoundtable, RoundtableConfigError }
 export type { LoadedRoundtable } from './config'
 export { ARTIFACT_THRESHOLD, discuss, estimateTokens, finalVotes, trimPool } from './engine'
 export type { DiscussionResult, EngineOptions, RoundtableStatus, TextCaller, Usage } from './engine'
-export { buildUserPrompt, CLOSE_BODY_INSTRUCTION, CLOSE_NOW_INSTRUCTION, CLOSE_TITLE_INSTRUCTION, visibleStatements } from './prompt'
+export { buildUserPrompt, FINISHED_INSTRUCTION, visibleStatements } from './prompt'
 export type { ArtifactRef, Statement, StatementStatus } from './prompt'
 export { RECORD_SCHEMA as ROUNDTABLE_SCHEMA } from './record'
 export type { AttemptState, FinalStatus, RecordVerdict, RoundtableRecord, RunState } from './record'
@@ -91,12 +91,14 @@ function toContextList(context: string | string[] | undefined): string[] {
 /** Turn the finished pool into the meeting's verdict. */
 function judgeAttempt(loaded: LoadedRoundtable, statements: Statement[]): RecordVerdict {
   const seats = loaded.seats.filter(seat => seat.enabled)
-  // A planning meeting is judged by whether it produced a usable plan — both
-  // stages, not just the title. Its seats never cast a `verdict`, so the weighted
-  // judgement would read an empty ballot as a rejection.
-  const plan = planFrom(statements)
-  if (plan?.angle) {
-    return { passed: true, vetoed: [], score: 1 }
+  // A meeting that declares output fields is judged by whether the room settled
+  // them: its seats talk rather than ballot, so an empty ballot would read as a
+  // rejection of a meeting that actually delivered.
+  if (loaded.table.outputFields) {
+    const output = outputFrom(statements, loaded.table.outputFields)
+    if (output && Object.keys(output).length === Object.keys(loaded.table.outputFields).length) {
+      return { passed: true, vetoed: [], score: 1 }
+    }
   }
   const votes = finalVotes(seats, statements)
   const judgement = judgeMeeting(seats, votes, loaded.table)
@@ -264,9 +266,9 @@ async function runLoop(context: RunnerContext, resumeFrom?: { pool: Statement[],
       attempt.statements.push(...result.statements)
       state.pool = attempt.statements
       // Kept on the state, not only in the statements: the record is written from
-      // here, and the plan is what a caller running a planning meeting wants.
-      if (result.plan) {
-        state.plan = result.plan
+      // here, and the output is what a caller running this meeting wants.
+      if (result.output) {
+        state.output = result.output
       }
       state.usage.input += result.usage.input
       state.usage.output += result.usage.output

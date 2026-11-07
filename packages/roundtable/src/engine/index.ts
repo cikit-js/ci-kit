@@ -15,12 +15,11 @@ export {
   ARTIFACT_THRESHOLD,
   discuss,
   emptyStatement,
-  planFrom,
+  outputFrom,
   POOL_POLL_MS,
   RETRY_BACKOFF_MS
 } from './discussion'
 export type {
-  DiscussionPlan,
   DiscussionResult,
   EngineEvents,
   EngineOptions,

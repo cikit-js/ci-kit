@@ -1,4 +1,4 @@
-import type { DiscussionPlan, RoundtableStatus, Usage } from './engine'
+import type { RoundtableStatus, Usage } from './engine'
 import type { Statement } from './prompt'
 import type { Seat } from './seat'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -32,13 +32,13 @@ export interface RoundtableRecord {
   statements: Statement[]
   usage: Usage
   /**
-   * What a planning meeting settled, when it settled anything.
+   * The structured result the table declared, when anyone settled it.
    *
-   * Recorded as a top-level field rather than left in the statements: the plan
-   * is the product of the meeting, and a caller reading the record should not
-   * have to replay the closing rules to recover it.
+   * Recorded as a top-level field rather than left in the statements: it is the
+   * product of the meeting, and a caller reading the record should not have to
+   * replay the accumulation rules to recover it.
    */
-  plan?: DiscussionPlan
+  output?: Record<string, string>
   /** One line explaining an abort or a failure. Never a provider payload. */
   error?: string
 }
@@ -71,12 +71,12 @@ export interface RunState {
   /** Material handed in by the caller, kept so a resume needs no arguments. */
   context: string[]
   /**
-   * What the meeting decided, once it decided anything.
+   * The structured result the table declared, once anyone settled it.
    *
-   * Written when an attempt closes: the plan is what the caller came for, and it
-   * has to survive a crash between the discussion and the record being built.
+   * Written when an attempt closes: it is what the caller came for, and it has
+   * to survive a crash between the discussion and the record being built.
    */
-  plan?: DiscussionPlan
+  output?: Record<string, string>
   /** Statements of the current attempt, in landing order. */
   pool: Statement[]
   /**
@@ -264,8 +264,8 @@ export function buildRecord(state: RunState, title: string): RoundtableRecord {
     verdict,
     statements: final?.statements ?? state.pool,
     usage: state.usage,
-    ...(state.plan
-      ? { plan: state.plan }
+    ...(state.output
+      ? { output: state.output }
       : {}),
     ...(state.error
       ? { error: state.error }

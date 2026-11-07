@@ -37,6 +37,14 @@ export interface Seat {
   id: string
   role: string
   enabled: boolean
+  /**
+   * What this seat is trying to get done in the meeting, in its own words.
+   *
+   * The table has no goal; every seat has one. This is what the seat checks
+   * itself against when it reports `finished`, and what tells a host it is the
+   * one who has to sum up — the library never matches on `role` to find it.
+   */
+  target?: string
   identity: SeatIdentity
   persona: SeatPersona
   seat: SeatPowers
@@ -75,6 +83,7 @@ const TOP_LEVEL_KEYS = new Set([
   'id',
   'role',
   'enabled',
+  'target',
   'identity',
   'persona',
   'seat'
@@ -262,11 +271,15 @@ function parseOutput(value: YamlValue | undefined, label: string): SeatOutput {
 /**
  * Render the persona block that precedes the Markdown body.
  *
- * Order is fixed: identity → personality → stance → speech → values → bounds →
- * body. Empty sections are dropped whole, title included, so a seat that declares
- * only a name never shows an empty "## 你的立场" to the model.
+ * Order is fixed: identity → target → personality → stance → speech → values →
+ * bounds → body → table rules. Empty sections are dropped whole, title
+ * included, so a seat that declares only a name never shows an empty "## 你的立场".
+ *
+ * `tableBody` is the `table.md` body — the meeting's own rules, written by the
+ * project. It goes last so it can speak about the seat rather than being
+ * interrupted by persona text. The library never reads it.
  */
-export function renderSeatSystemPrompt(seat: Seat): string {
+export function renderSeatSystemPrompt(seat: Seat, tableBody?: string): string {
   const lines: string[] = []
   const { identity, persona } = seat
 
@@ -275,6 +288,9 @@ export function renderSeatSystemPrompt(seat: Seat): string {
   const headline = identity.title ?? `是一名${seat.role}`
   lines.push(`你是${identity.name}，${headline}。`)
 
+  if (seat.target) {
+    lines.push('', '## 你在这场会上要做到的事', seat.target)
+  }
   if (identity.background) {
     lines.push('', '## 背景', identity.background)
   }
@@ -305,6 +321,12 @@ export function renderSeatSystemPrompt(seat: Seat): string {
   }
   if (seat.body) {
     lines.push('', seat.body)
+  }
+  if (tableBody?.trim()) {
+    // The meeting's own rules, written by the project in table.md. The library
+    // only carries them: what a seat should do here is the project's sentence,
+    // not something this package decides.
+    lines.push('', '# 这场会的规则', '', tableBody.trim())
   }
   return lines.join('\n')
 }
@@ -337,6 +359,7 @@ export function parseSeat(document: Document, source: string): Seat {
     id,
     role,
     enabled: asBoolean(document.data.enabled as YamlValue, label, 'enabled', SEAT_DEFAULTS.enabled),
+    target: asString(document.data.target as YamlValue, label, 'target'),
     identity: {
       // The name only exists for readability in the record; the role is the
       // stated function and is guaranteed to be there.

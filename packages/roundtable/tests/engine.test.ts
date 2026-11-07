@@ -28,7 +28,7 @@ identity:
 乙。
 `)
 
-function loaded(seats: Seat[], overrides: { durationMs?: number, maxPoolTokens?: number } = {}): LoadedRoundtable {
+function loaded(seats: Seat[], overrides: { durationMs?: number, maxPoolTokens?: number, outputFields?: Record<string, string> } = {}): LoadedRoundtable {
   const enabled = seats.filter(item => item.enabled)
   return {
     table: {
@@ -37,7 +37,10 @@ function loaded(seats: Seat[], overrides: { durationMs?: number, maxPoolTokens?:
       maxPoolTokens: overrides.maxPoolTokens ?? 3000,
       threshold: 0.6,
       onVeto: 'abort',
-      maxAttempts: 1
+      maxAttempts: 1,
+      ...(overrides.outputFields
+        ? { outputFields: overrides.outputFields }
+        : {})
     },
     seats,
     byId: new Map(enabled.map(item => [item.id, item])),
@@ -443,7 +446,7 @@ seat:
 
   it('puts the sentence a JSON seat said into the pool, not its envelope', async () => {
     // A json seat replies with a document. The next seat has to read the
-    // sentence inside it; handing it `{"say":"…","done":false}` turns the
+    // sentence inside it; handing it `{"speech":"…","finished":false}` turns the
     // discussion into parsing and the release note into a log dump.
     const first = seat(`---
 id: a
@@ -458,7 +461,7 @@ seat:
     const clock = fakeClock(undefined, 300)
     let turn = 0
     const { callText } = stubText({
-      reply: () => JSON.stringify({ say: `我选第二个候选${++turn}`, done: false })
+      reply: () => JSON.stringify({ speech: `我选第二个候选${++turn}`, finished: false })
     })
     const result = await discuss({
       loaded: loaded([first], { durationMs: 10_000 }),
@@ -472,14 +475,14 @@ seat:
     // read the sentence, while `structured` keeps the reply as evidence.
     expect(result.statements.length).toBeGreaterThan(0)
     for (const statement of result.statements) {
-      expect(statement.content).not.toContain('"say"')
+      expect(statement.content).not.toContain('"speech"')
       expect(statement.content).toContain('我选第二个候选')
-      expect(statement.say).toBe(statement.content)
-      expect(statement.structured).toEqual({ say: statement.content, done: false })
+      expect(statement.speech).toBe(statement.content)
+      expect(statement.structured).toEqual({ speech: statement.content, finished: false })
     }
   })
 
-  it('reads the host plan back from the closing statement', async () => {
+  it('reads the declared output back from the statements', async () => {
     const host = seat(`---
 id: a
 role: 主持
@@ -493,33 +496,32 @@ seat:
     const clock = fakeClock(undefined, 300)
     const { callText } = stubText({
       reply: () => JSON.stringify({
-        say: '角度定了',
-        done: true,
-        candidateId: 'c1',
-        angle: '固定岗位不固定人',
-        audience: '店长',
-        outline: '三段',
-        title: '位置该有人'
+        speech: '定了',
+        finished: true,
+        output: {
+          title: '位置该有人',
+          content: '固定岗位不固定人'
+        }
       })
     })
     const result = await discuss({
-      loaded: loaded([host], { durationMs: 10_000 }),
+      loaded: loaded([host], {
+        durationMs: 10_000,
+        outputFields: { title: '文章标题', content: '文章正文' }
+      }),
       topic: 'q',
       context: [],
       callText,
       now: clock.now,
       sleep: async () => {}
     })
-    expect(result.plan).toEqual({
-      angle: '固定岗位不固定人',
-      audience: '店长',
-      outline: '三段',
+    expect(result.output).toEqual({
       title: '位置该有人',
-      by: 'a'
+      content: '固定岗位不固定人'
     })
   })
 
-  it('reports no plan when the host never settled one', async () => {
+  it('reports no output when nobody filled the declared fields', async () => {
     const host = seat(`---
 id: a
 role: 主持
@@ -531,8 +533,36 @@ seat:
 甲。
 `)
     const { callText } = stubText({
-      // Talking about a topic is not closing it: no angle, no plan.
-      reply: () => JSON.stringify({ say: '大家再看看', done: true })
+      // Talking about the fields is not filling them: the caller reads fields.
+      reply: () => JSON.stringify({ speech: '大家再看看', finished: true })
+    })
+    const result = await discuss({
+      loaded: loaded([host], {
+        durationMs: 10_000,
+        outputFields: { title: '文章标题', content: '文章正文' }
+      }),
+      topic: 'q',
+      context: [],
+      callText,
+      now: fakeClock(undefined, 300).now,
+      sleep: async () => {}
+    })
+    expect(result.output).toBeUndefined()
+  })
+
+  it('reports no output when the table declares no fields', async () => {
+    const host = seat(`---
+id: a
+role: 主持
+identity:
+  name: 阿甲
+seat:
+  output: json
+---
+甲。
+`)
+    const { callText } = stubText({
+      reply: () => JSON.stringify({ speech: '说完了', finished: true })
     })
     const result = await discuss({
       loaded: loaded([host], { durationMs: 10_000 }),
@@ -542,13 +572,74 @@ seat:
       now: fakeClock(undefined, 300).now,
       sleep: async () => {}
     })
-    expect(result.plan).toBeUndefined()
+    expect(result.output).toBeUndefined()
   })
 
-  it('settles the title first, then the body', async () => {
-    const host = seat(`---
+  it('accumulates output per field across statements', async () => {
+    // One seat settles the title, a later one adds the body without repeating
+    // it: neither statement carries the whole result on its own.
+    const a = seat(`---
 id: a
-role: 主持
+role: 甲
+identity:
+  name: 阿甲
+seat:
+  output: json
+---
+甲。
+`)
+    const b = seat(`---
+id: b
+role: 乙
+identity:
+  name: 阿乙
+seat:
+  output: json
+---
+乙。
+`)
+    const clock = fakeClock(undefined, 300)
+    let turn = 0
+    const { callText } = stubText({
+      reply: () => {
+        turn++
+        // The first statement settles the title; the second adds the body
+        // without repeating it. Each carries only half of the result.
+        return JSON.stringify(turn === 1
+          ? {
+              speech: '标题就这么定',
+              finished: false,
+              output: { title: '位置该有人' }
+            }
+          : {
+              speech: '正文这样写',
+              finished: true,
+              output: { content: '固定岗位不固定人' }
+            })
+      }
+    })
+    const result = await discuss({
+      loaded: loaded([a, b], {
+        durationMs: 10_000,
+        outputFields: { title: '文章标题', content: '文章正文' }
+      }),
+      topic: 'q',
+      context: [],
+      callText,
+      now: clock.now,
+      sleep: async () => {}
+    })
+    expect(result.output).toEqual({
+      title: '位置该有人',
+      content: '固定岗位不固定人'
+    })
+    expect(turn).toBeGreaterThan(1)
+  })
+
+  it('takes the newest value when a field is revised', async () => {
+    const a = seat(`---
+id: a
+role: 甲
 identity:
   name: 阿甲
 seat:
@@ -557,43 +648,30 @@ seat:
 甲。
 `)
     const clock = fakeClock(undefined, 300)
-    const prompts: string[] = []
+    let turn = 0
     const { callText } = stubText({
-      // Stage one answers with a title alone; stage two fills the rest. The bias
-      // is deliberate: without it a host would answer both stages in one reply
-      // and the second call would never happen.
-      reply: ({ prompt }: { prompt: string }) => {
-        prompts.push(prompt)
-        return JSON.stringify(prompts.length === 1
-          ? { say: '就叫这个', done: true, title: '位置该有人' }
-          : {
-              say: '定了',
-              done: true,
-              title: '位置该有人',
-              angle: '固定岗位不固定人',
-              audience: '店长',
-              outline: '三段'
-            })
+      reply: () => {
+        turn++
+        return JSON.stringify({
+          speech: `第${turn}次`,
+          finished: false,
+          output: { title: `标题${turn}` }
+        })
       }
     })
     const result = await discuss({
-      loaded: loaded([host], { durationMs: 10_000 }),
+      loaded: loaded([a], {
+        durationMs: 10_000,
+        outputFields: { title: '文章标题' }
+      }),
       topic: 'q',
       context: [],
       callText,
       now: clock.now,
       sleep: async () => {}
     })
-    expect(result.plan).toEqual({
-      title: '位置该有人',
-      angle: '固定岗位不固定人',
-      audience: '店长',
-      outline: '三段',
-      by: 'a'
-    })
-    // Stage two is told what stage one settled, so it does not re-open the title.
-    expect(prompts).toHaveLength(2)
-    expect(prompts[1]).toContain('位置该有人')
+    // A later statement overrides an earlier one for the same key.
+    expect(result.output).toEqual({ title: `标题${turn}` })
   })
 })
 

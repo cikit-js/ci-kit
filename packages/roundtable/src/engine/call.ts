@@ -2,7 +2,7 @@ import type { ReasoningEffort } from '@ci-kit/ai'
 import type { Seat } from '../seat'
 import type { Usage } from './discussion'
 import { text as aiText, isAiError } from '@ci-kit/ai'
-import { VERDICT_SCHEMA, verdictInstruction } from '../prompt'
+import { buildVerdictSchema, verdictInstruction } from '../prompt'
 import { renderSeatSystemPrompt } from '../seat'
 
 /** The AI call the engine depends on; injectable so discussions can be tested offline. */
@@ -18,6 +18,10 @@ export interface CallContext {
   now?: () => number
   /** How hard thinking models should think; `undefined` keeps the provider default. */
   reasoningEffort?: ReasoningEffort
+  /** The meeting's own rules from `table.md`, carried into the system prompt. */
+  tableBody?: string
+  /** The fields this table declared; drives the reply schema. */
+  outputFields?: Record<string, string>
 }
 
 export interface CallOutcome {
@@ -73,12 +77,14 @@ export async function callSeat(seat: Seat, prompt: string, context: CallContext)
       prompt: wantJson
         ? `${prompt}\n\n${verdictInstruction(seat)}`
         : prompt,
-      system: renderSeatSystemPrompt(seat),
+      system: renderSeatSystemPrompt(seat, context.tableBody),
       // A voting seat's reply is constrained by the schema, not by a prompt that
       // describes JSON: the field names live in code where the parser reads them.
       // `output: text` seats stay unconstrained and simply speak.
       ...wantJson
-        ? { schema: VERDICT_SCHEMA }
+        ? {
+            schema: buildVerdictSchema(context.outputFields)
+          }
         : {},
       maxTokens: seat.seat.maxTokens,
       // A discussion turn is one short line. Thinking models bill their

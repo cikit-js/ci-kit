@@ -2,7 +2,7 @@ import type { Statement } from '../src/prompt'
 import type { Seat } from '../src/seat'
 import { describe, expect, it } from 'vitest'
 import { readFrontmatter } from '../src/frontmatter'
-import { buildUserPrompt, VERDICT_SCHEMA, verdictInstruction, visibleStatements } from '../src/prompt'
+import { buildUserPrompt, buildVerdictSchema, VERDICT_SCHEMA, verdictInstruction, visibleStatements } from '../src/prompt'
 import { parseSeat } from '../src/seat'
 
 function seat(source: string): Seat {
@@ -190,17 +190,40 @@ seat:
   })
 
   it('states the output contract as a schema, not as prose', () => {
-    // Every seat has to say something and report whether it is finished. The
-    // closing plan fields stay optional: only the host fills them.
-    expect(VERDICT_SCHEMA.required).toEqual(['say', 'done'])
+    // Two protocol fields exist for every seat: it speaks, and it says whether
+    // its own target is met. Nothing about a particular project's result is here.
+    expect(VERDICT_SCHEMA.required).toEqual(['speech', 'finished'])
     expect(VERDICT_SCHEMA.properties.verdict.enum).toEqual(['pass', 'reject'])
-    // No candidates any more: the meeting names the article itself, so there is
-    // no id to choose from. `title` is what closes stage one.
+    // No business fields: a table that wants a structured result declares it.
+    expect(Object.keys(VERDICT_SCHEMA.properties)).not.toContain('output')
+    expect(Object.keys(VERDICT_SCHEMA.properties)).not.toContain('title')
     expect(Object.keys(VERDICT_SCHEMA.properties)).not.toContain('candidateId')
-    expect(VERDICT_SCHEMA.properties.title.type).toBe('string')
     // The decision is the program's, so there is no field for it.
     expect(Object.keys(VERDICT_SCHEMA.properties)).not.toContain('approved')
     expect(VERDICT_SCHEMA.additionalProperties).toBe(false)
+  })
+
+  it('builds the output object from the fields a table declares', () => {
+    const schema = buildVerdictSchema({
+      title: '文章标题',
+      content: '文章正文'
+    })
+    const output = schema.properties.output as {
+      properties: Record<string, { description: string }>
+      required: string[]
+    }
+    // The declared key is the field, the declared value is its constraint: the
+    // library carries both without knowing what either means.
+    expect(Object.keys(output.properties)).toEqual(['title', 'content'])
+    expect(output.properties.title!.description).toBe('文章标题')
+    expect(output.required).toEqual(['title', 'content'])
+    // The protocol fields stay required whatever the table declares.
+    expect(schema.required).toEqual(['speech', 'finished'])
+  })
+
+  it('omits the output object when a table declares no fields', () => {
+    expect(buildVerdictSchema({}).properties.output).toBeUndefined()
+    expect(buildVerdictSchema().properties.output).toBeUndefined()
   })
 
   it('tells a veto holder that a veto needs a reason', () => {

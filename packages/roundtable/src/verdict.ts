@@ -10,7 +10,7 @@ import type { Table } from './table'
  */
 export interface SeatVerdict {
   /** The line the seat said, in words the other seats can read. */
-  say?: string
+  speech?: string
   verdict?: 'pass' | 'reject'
   /** Self-reported quality score, 0–1. Recorded, not used for the decision. */
   score?: number
@@ -18,17 +18,15 @@ export interface SeatVerdict {
   suggestions?: string[]
   /** Required for a veto. A veto without one is ignored. */
   reason?: string
-  /** The seat reports it has nothing left to argue; the engine quiets it. */
-  done?: boolean
+  /** The seat reports its own target is met; the engine quiets it. */
+  finished?: boolean
   /**
-   * The host's closing plan, when a meeting is deciding what to write rather
-   * than whether something may ship. `title` closes stage one; the rest closes
-   * stage two.
+   * Whatever the table's `output.fields` asked for, keyed by that field name.
+   *
+   * Free-form on purpose: the library knows a project declared fields, not what
+   * they mean. A seat that fills none of them leaves this undefined.
    */
-  angle?: string
-  audience?: string
-  outline?: string
-  title?: string
+  output?: Record<string, string>
 }
 
 /** One seat's final word in a discussion, after the last-statement rule. */
@@ -147,26 +145,42 @@ export function readVerdict(raw: unknown): SeatVerdict {
   // other shape leaves the seat speaking, which is the safe default: a seat
   // wrongly kept in the room costs one turn, a seat wrongly silenced costs its
   // whole judgment.
-  const done = source.done === true
+  const finished = source.finished === true
     ? true
     : undefined
   const line = (value: unknown): string | undefined =>
     typeof value === 'string' && value.trim()
       ? value.trim()
       : undefined
-  const say = line(source.say)
+  const speech = line(source.speech)
+
+  // The output fields are whatever the table declared. Every key is kept only
+  // when it holds a non-empty string: a model that echoes an empty field has not
+  // settled it, and treating "" as settled would let a half-filled meeting look
+  // complete.
+  let output: Record<string, string> | undefined
+  if (source.output && typeof source.output === 'object' && !Array.isArray(source.output)) {
+    const filled: Record<string, string> = {}
+    for (const [key, value] of Object.entries(source.output as Record<string, unknown>)) {
+      const text = line(value)
+      if (text !== undefined) {
+        filled[key] = text
+      }
+    }
+    if (Object.keys(filled).length) {
+      output = filled
+    }
+  }
+
   return {
-    say,
+    speech,
     verdict,
     score,
     issues,
     suggestions,
     reason,
-    done,
-    angle: line(source.angle),
-    audience: line(source.audience),
-    outline: line(source.outline),
-    title: line(source.title)
+    finished,
+    output
   }
 }
 

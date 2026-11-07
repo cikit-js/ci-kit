@@ -260,14 +260,33 @@ describe('readVerdict', () => {
     })
   })
 
-  it('reads done only from an explicit true', () => {
-    // The engine quiets a seat on `done`, so the only safe reading is the
+  it('reads finished only from an explicit true', () => {
+    // The engine quiets a seat on `finished`, so the only safe reading is the
     // literal boolean. Anything else keeps the seat in the room.
-    expect(readVerdict({ verdict: 'pass', done: true }).done).toBe(true)
-    expect(readVerdict({ verdict: 'pass', done: false }).done).toBeUndefined()
-    expect(readVerdict({ verdict: 'pass', done: 'true' }).done).toBeUndefined()
-    expect(readVerdict({ verdict: 'pass', done: 1 }).done).toBeUndefined()
-    expect(readVerdict({ verdict: 'pass' }).done).toBeUndefined()
+    expect(readVerdict({ verdict: 'pass', finished: true }).finished).toBe(true)
+    expect(readVerdict({ verdict: 'pass', finished: false }).finished).toBeUndefined()
+    expect(readVerdict({ verdict: 'pass', finished: 'true' }).finished).toBeUndefined()
+    expect(readVerdict({ verdict: 'pass', finished: 1 }).finished).toBeUndefined()
+    expect(readVerdict({ verdict: 'pass' }).finished).toBeUndefined()
+  })
+
+  it('keeps only the non-empty output fields a seat filled', () => {
+    expect(readVerdict({
+      output: { title: '标题', content: '  正文  ' }
+    }).output).toEqual({
+      title: '标题',
+      content: '正文'
+    })
+    // An empty field is not settled; a half-filled meeting must not read whole.
+    expect(readVerdict({
+      output: { title: '标题', content: '   ' }
+    }).output).toEqual({ title: '标题' })
+    expect(readVerdict({
+      output: { title: '', content: '' }
+    }).output).toBeUndefined()
+    expect(readVerdict({ output: {} }).output).toBeUndefined()
+    expect(readVerdict({ output: 'title' }).output).toBeUndefined()
+    expect(readVerdict({}).output).toBeUndefined()
   })
 
   it('never infers a verdict from anything but the verdict field', () => {

@@ -59,30 +59,14 @@ export interface DiscussionResult {
   abortedBy?: { seat: string, error: string }
   usage: Usage
   /**
-   * The host's closing plan, when the meeting was deciding what to write.
+   * The structured result the table declared, filled by whichever seats filled
+   * it. Absent when the table declared no `output.fields`, or nobody settled
+   * them.
    *
-   * Absent means nobody closed the meeting with a usable plan — a host that
-   * never spoke, or spoke without filling the plan fields. The caller decides
-   * what to do about it; the engine does not invent a plan.
+   * Read from this run's statements only: a resumed meeting that settled
+   * nothing must not inherit the result of the meeting it continues.
    */
-  plan?: DiscussionPlan
-}
-
-/**
- * What a planning meeting has to settle before anyone writes.
- *
- * Settled in two stages inside one meeting: the title first, then the rest. A
- * plan with `title` alone means stage one is done and the meeting continues; a
- * plan with everything means the meeting is over.
- */
-export interface DiscussionPlan {
-  title: string
-  /** Absent until the second stage closes. */
-  angle?: string
-  audience?: string
-  outline?: string
-  /** The seat whose closing statement produced this plan. */
-  by: string
+  output?: Record<string, string>
 }
 
 /**
@@ -100,15 +84,6 @@ export const RETRY_BACKOFF_MS = 500
 
 /** How often a waiting seat re-checks whether the pool moved, in ms. */
 export const POOL_POLL_MS = 100
-
-/**
- * The role that closes a planning meeting.
- *
- * Matching on the role rather than on a config flag keeps the seam where a
- * project already declares it: the seat that sums up is the seat whose `role`
- * says so.
- */
-export const CLOSING_ROLE = '主持'
 
 /**
  * How long a waiting seat tolerates silence before it stops, in ms.
@@ -168,46 +143,14 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
   /** Seats that have left the room for good: failed, or finished their loop. */
   const gone = new Set<string>()
 
-  /**
-   * The host may be unparked from a wait at most once per stage, so a host that
-   * answers with nothing cannot keep the meeting spinning.
-   */
-  const gateBoosted = new Set<string>()
-
   /** True when no live seat is able to speak without someone else moving first. */
   const stalled = (): boolean => {
     const live = seats.filter(seat => !gone.has(seat.id) && !quiet.has(seat.id))
     return live.length > 0 && live.every(seat => waiting.has(seat.id))
   }
 
-  /**
-   * The seat that closes a planning meeting, by role.
-   *
-   * Only a planning table has one; a review table ends on votes and needs no
-   * closing statement.
-   */
-  const closingSeat = seats.find(seat => seat.role === CLOSING_ROLE)
-
   /** Statements this run has landed, excluding whatever came in with the pool. */
   const freshStatements = (): Statement[] => pool.slice(options.priorPool?.length ?? 0)
-
-  /**
-   * Which stage the meeting is in right now.
-   *
-   * There is no separate switch to keep in sync: the stage is whatever the pool
-   * says has been settled. Title undecided means stage one; title decided but no
-   * angle means stage two.
-   */
-  const currentStage = (): 'title' | 'body' | undefined => {
-    if (!closingSeat) {
-      return undefined
-    }
-    const settled = planFrom(freshStatements())
-    if (!settled) {
-      return 'title'
-    }
-    return settled.angle ? undefined : 'body'
-  }
 
   const land = (statement: Statement): void => {
     pool.push(statement)
@@ -263,19 +206,9 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
         idleSince = waitingSince
         await sleep(pollMs)
         if (pool.length <= floor) {
-          // Everyone waiting means nobody can break the tie. Two ways out.
-          //
-          // Stage one can still be closed by the host while everyone else waits:
-          // that is the whole point of a host, and it is the normal way a title
-          // gets settled. Mark the host's gate stale so its own loop stops
-          // waiting and takes the closing turn; the other seats then return and
-          // the closing turns at the end cover whatever is left.
-          if (stalled() && closingSeat && currentStage() !== undefined && !gateBoosted.has(closingSeat.id)) {
-            gateBoosted.add(closingSeat.id)
-            gate.delete(closingSeat.id)
-            waiting.delete(seat.id)
-            continue
-          }
+          // Everyone waiting means nobody can produce what the others are
+          // waiting for: the room is stalled, not thinking. That is the normal
+          // way a discussion ends, not an edge case.
           if (stalled() || now() >= deadline || Date.now() - waitingSince >= MAX_IDLE_MS) {
             waiting.delete(seat.id)
             return
@@ -300,19 +233,17 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
         revisionNotes: (options.attempt ?? 1) === 1
           ? options.openingNotes ?? options.revisionNotes
           : options.revisionNotes,
-        askDone: seat.seat.output === 'json',
-        // Whichever stage the meeting is in decides what this turn is asked to
-        // settle. Read fresh each turn: the host may have closed stage one while
-        // this seat was waiting.
-        stage: currentStage(),
-        settledTitle: planFrom(freshStatements())?.title
+        askFinished: seat.seat.output === 'json',
+        outputFields: loaded.table.outputFields
       })
 
       let outcome = await callSeat(seat, prompt, {
         env: options.env,
         callText: options.callText,
         now: options.now,
-        reasoningEffort: effort
+        reasoningEffort: effort,
+        tableBody: loaded.table.body,
+        outputFields: loaded.table.outputFields
       })
       if (!outcome.ok && seat.seat.fallback === 'retry' && outcome.retryable && now() < deadline) {
         await sleep(RETRY_BACKOFF_MS)
@@ -321,7 +252,9 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
             env: options.env,
             callText: options.callText,
             now: options.now,
-            reasoningEffort: effort
+            reasoningEffort: effort,
+            tableBody: loaded.table.body,
+            outputFields: loaded.table.outputFields
           })
         }
       }
@@ -359,8 +292,8 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
         return
       }
 
-      if (statement.done) {
-        // Nothing left to argue. Wait to be named rather than burn turns
+      if (statement.finished) {
+        // This seat's own target is met. Wait to be named rather than burn turns
         // restating a settled conclusion.
         quiet.add(seat.id)
         return
@@ -387,82 +320,53 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
     }
   })))
 
-  // A planning meeting that talked itself out without settling gets a closing turn
-  // from the host, on its own. The concurrent loops cannot do this: by the time
-  // everyone is done, the host's loop has already exited, and a seat cannot be
-  // woken from outside the loop it left.
-  //
-  // Two stages, in order: the title first, then the body. Each stage gets at most
-  // one closing turn, so a host that keeps failing cannot burn the budget.
-  if (closingSeat && !stopped) {
-    for (const stage of ['title', 'body'] as const) {
-      if (stopped || now() >= deadline) {
-        break
-      }
-      const settled = planFrom(freshStatements())
-      if (stage === 'title' && settled) {
-        // Stage one already closed during the discussion itself.
-        continue
-      }
-      if (stage === 'body' && settled?.angle) {
-        break
-      }
-
-      const snapshot = trimPool(pool, loaded.table.maxPoolTokens)
-      const prompt = buildUserPrompt({
-        topic: options.topic,
-        brief: options.brief,
-        context: options.context,
-        visible: visibleStatements(snapshot.kept),
-        dropped: snapshot.dropped,
-        revisionNotes: (options.attempt ?? 1) === 1
-          ? options.openingNotes ?? options.revisionNotes
-          : options.revisionNotes,
-        askDone: closingSeat.seat.output === 'json',
-        stage,
-        settledTitle: settled?.title
-      })
-
-      let outcome = await callSeat(closingSeat, prompt, {
-        env: options.env,
-        callText: options.callText,
-        now: options.now,
-        reasoningEffort: effort
-      })
-      if (!outcome.ok && closingSeat.seat.fallback === 'retry' && outcome.retryable && now() < deadline) {
-        await sleep(RETRY_BACKOFF_MS)
-        if (now() < deadline && !stopped) {
-          outcome = await callSeat(closingSeat, prompt, {
-            env: options.env,
-            callText: options.callText,
-            now: options.now,
-            reasoningEffort: effort
-          })
-        }
-      }
-      if (outcome.usage) {
-        usage.input += outcome.usage.input
-        usage.output += outcome.usage.output
-      }
-      land(statementFromOutcome(closingSeat, outcome))
-      await options.persist?.()
-
-      // A closing turn that produced nothing ends the meeting: asking the same
-      // host a third time is unlikely to go better, and the caller falls back.
-      if (stage === 'title' && planFrom(freshStatements()) === undefined) {
-        break
-      }
-    }
-  }
-
   return {
     statements: freshStatements(),
     abortedBy,
     usage,
-    // The plan is read from this run's statements only: a resumed meeting that
-    // closed nothing must not inherit the plan of the meeting it continues.
-    plan: planFrom(freshStatements())
+    output: outputFrom(freshStatements(), loaded.table.outputFields)
   }
+}
+
+/**
+ * The table's declared output, read back from this run's statements.
+ *
+ * Scanned newest-first and accumulated per key: a seat that fills one field late
+ * is not overriding another field it never mentioned, and a later statement wins
+ * for the same key — which is what "revised" means.
+ *
+ * A field nobody filled is simply absent. The caller decides whether a partial
+ * result is usable; the engine does not invent values.
+ */
+export function outputFrom(
+  statements: Statement[],
+  fields?: Record<string, string>
+): Record<string, string> | undefined {
+  if (!fields || !Object.keys(fields).length) {
+    return undefined
+  }
+  const wanted = new Set(Object.keys(fields))
+  const settled: Record<string, string> = {}
+
+  for (let index = statements.length - 1; index >= 0; index--) {
+    const statement = statements[index]!
+    if (statement.status !== 'completed') {
+      continue
+    }
+    const parsed = readVerdict(statement.structured)
+    for (const [key, value] of Object.entries(parsed.output ?? {})) {
+      if (wanted.has(key) && settled[key] === undefined) {
+        settled[key] = value
+      }
+    }
+    if (Object.keys(settled).length === wanted.size) {
+      break
+    }
+  }
+
+  return Object.keys(settled).length
+    ? settled
+    : undefined
 }
 
 export function emptyStatement(
@@ -498,7 +402,7 @@ function statementFromOutcome(seat: Seat, outcome: Parameters<typeof callSeat> e
   // What lands in the pool is what the seat said, not the envelope it came in.
   // A `output: json` reply is a document; other seats need the sentence inside,
   // or the discussion reads like a log file.
-  const spoken = parsed.say
+  const spoken = parsed.speech
     ?? (typeof parsed.reason === 'string'
       ? parsed.reason
       : undefined)
@@ -510,7 +414,7 @@ function statementFromOutcome(seat: Seat, outcome: Parameters<typeof callSeat> e
     at: new Date().toISOString(),
     status: 'completed',
     content: spoken,
-    say: spoken,
+    speech: spoken,
     durationMs: outcome.durationMs,
     model: outcome.model,
     usage: outcome.usage
@@ -520,7 +424,7 @@ function statementFromOutcome(seat: Seat, outcome: Parameters<typeof callSeat> e
       statement.verdict = parsed.verdict
     }
     statement.structured = outcome.structured
-    statement.done = parsed.done === true
+    statement.finished = parsed.finished === true
     // A veto with no reason is recorded as such and does not count. It stays
     // `completed` for reading purposes, but the status says what happened.
     if (parsed.verdict === 'reject' && seat.seat.canVeto && vetoReason(parsed, outcome.content).length === 0) {
@@ -528,50 +432,4 @@ function statementFromOutcome(seat: Seat, outcome: Parameters<typeof callSeat> e
     }
   }
   return statement
-}
-
-/**
- * The plan a meeting closed with, read back from its statements.
- *
- * Scanned backwards with the fields accumulated: a planning meeting settles the
- * title in one closing turn and the body in a later one, so the newest statement
- * alone usually carries only half of it. Newest wins per field — a later turn
- * overrides an earlier one for the same key, which is what "revised" means.
- *
- * A statement that only talks about the topic contributes nothing: without a
- * title somewhere in the record there is no plan to write from.
- */
-export function planFrom(statements: Statement[]): DiscussionPlan | undefined {
-  let title: string | undefined
-  let angle: string | undefined
-  let audience: string | undefined
-  let outline: string | undefined
-  let by: string | undefined
-
-  for (let index = statements.length - 1; index >= 0; index--) {
-    const statement = statements[index]!
-    if (statement.status !== 'completed') {
-      continue
-    }
-    const parsed = readVerdict(statement.structured)
-    const contributed = parsed.title !== undefined || parsed.angle !== undefined
-    title ??= parsed.title
-    angle ??= parsed.angle
-    audience ??= parsed.audience
-    outline ??= parsed.outline
-    if (contributed) {
-      by ??= statement.seat
-    }
-  }
-
-  if (title === undefined) {
-    return undefined
-  }
-  return {
-    title,
-    angle,
-    audience,
-    outline,
-    by: by ?? ''
-  }
 }

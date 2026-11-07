@@ -61,8 +61,38 @@ describe('parseTable', () => {
       maxPoolTokens: 5000,
       threshold: 0.6,
       onVeto: 'abort',
-      maxAttempts: 1
+      maxAttempts: 1,
+      // The body is the meeting's own rules and now travels with the config.
+      body: '# 文章审核圆桌\n\n一篇文章写完、通过机器审核之后，交给这张圆桌再过一遍。'
     })
+  })
+
+  it('reads output fields as a mapping of field name to its constraint', () => {
+    const parsed = table(`---
+output:
+  fields:
+    title: 文章标题
+    content: 文章正文
+---`)
+    expect(parsed.outputFields).toEqual({
+      title: '文章标题',
+      content: '文章正文'
+    })
+  })
+
+  it('leaves outputFields absent when a table declares none', () => {
+    expect(table('---\ndurationMs: 60000\n---').outputFields).toBeUndefined()
+    // An empty mapping is the same as no declaration: nothing to settle.
+    expect(table('---\noutput:\n  fields:\n---').outputFields).toBeUndefined()
+  })
+
+  it('rejects a malformed output declaration', () => {
+    expect(() => table('---\noutput:\n  fields:\n    - title\n---')).toThrow(/must be a mapping/)
+    expect(() => table('---\noutput:\n  fields:\n    title: 标题\n  extra: 1\n---')).toThrow(/unknown field/)
+    expect(() => table('---\noutput:\n  fields:\n    title: "  "\n---')).toThrow(/non-empty constraint/)
+    // A name that is not a plain word never reaches the field parser: the YAML
+    // layer rejects the quoted key first. Either way it is refused.
+    expect(() => table('---\noutput:\n  fields:\n    "有 空格": 标题\n---')).toThrow(/table\.md/)
   })
 
   it('applies every default when the table states nothing', () => {
