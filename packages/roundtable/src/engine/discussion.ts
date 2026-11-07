@@ -225,24 +225,23 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
         idleSince = waitingSince
         await sleep(pollMs)
         if (pool.length <= floor) {
-          // Everyone waiting means nobody can produce what the others are
-          // waiting for: the room is stalled, not thinking.
-          //
           // A stall is not the same as agreement. The normal way out is that a
           // seat which has something left to say says it — but every seat is
           // sitting on the same "wait for someone else" rule, so the room can
-          // deadlock with nobody finished. Give each unfinished live seat one
-          // last turn, once, and tell it the room went quiet; then stall for
-          // real if nothing comes of it.
-          if (stalled()) {
-            // A stall is only a problem for a meeting that owes something. When
-            // the table declared output fields, the room can deadlock with the
-            // fields still unfilled — and a seat that never said `finished` is
-            // exactly how that happens, because the model rarely reports it.
-            // A review-only meeting owes nothing, so it ends as before.
+          // deadlock with nobody finished. Give a seat one last turn, once, and
+          // tell it the room went quiet; then stall for real if nothing comes.
+          //
+          // Two exits count as "the room stopped": everyone is waiting at once,
+          // which is the clean deadlock, and one seat has been idle long enough,
+          // which is how it actually ends when seats take turns naming each
+          // other. Both mean the same thing to a pending seat.
+          const IDLE_EXIT = Date.now() - waitingSince >= MAX_IDLE_MS
+          if (stalled() || IDLE_EXIT) {
+            // The extra turn is only worth a paid call for a meeting that owes
+            // something: the table declared output fields and they are still
+            // unfilled. A review-only meeting owes nothing and ends as before.
             const owesFields = Object.keys(loaded.table.outputFields ?? {}).length > 0
-            const canFinish = seat.seat.output === 'json'
-            const pending = canFinish && (unfinished.has(seat.id) || owesFields)
+            const pending = seat.seat.output === 'json' && (unfinished.has(seat.id) || owesFields)
             if (pending && !lastChanceUsed.has(seat.id) && !quiet.has(seat.id)) {
               lastChanceUsed.add(seat.id)
               waiting.delete(seat.id)
@@ -258,7 +257,7 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
               return
             }
           }
-          else if (now() >= deadline || Date.now() - waitingSince >= MAX_IDLE_MS) {
+          else if (now() >= deadline) {
             waiting.delete(seat.id)
             return
           }
