@@ -26,7 +26,6 @@ persona:
   avoid: 不做风格评价，只管事实
 
 seat:
-  sees: none
   canVeto: true
   weight: 2
   maxTokens: 80
@@ -52,7 +51,6 @@ describe('parseSeat', () => {
     expect(seat.persona.personality).toEqual(['较真', '不留情面', '对引用敏感'])
     expect(seat.persona.stance).toBe('宁可错杀，不可放过')
     expect(seat.seat).toEqual({
-      sees: 'none',
       canVeto: true,
       weight: 2,
       maxTokens: 80,
@@ -69,10 +67,9 @@ role: 门店读者视角
 ---
 一次只说一句。
 `)
-    expect(seat.seat.sees).toBe(SEAT_DEFAULTS.sees)
     expect(seat.seat.canVeto).toBe(false)
     expect(seat.seat.weight).toBe(1)
-    expect(seat.seat.maxTokens).toBe(80)
+    expect(seat.seat.maxTokens).toBe(SEAT_DEFAULTS.maxTokens)
     expect(seat.seat.fallback).toBe('skip')
     expect(seat.seat.output).toBe('text')
     expect(seat.enabled).toBe(true)
@@ -135,14 +132,12 @@ id: jaina
 role: 品牌与表达
 name: 吉安娜
 avatar: ✍️
-sees: all
 weight: 2
 ---
 一次只说一句。
 `)
     expect(seat.identity.name).toBe('吉安娜')
     expect(seat.identity.avatar).toBe('✍️')
-    expect(seat.seat.sees).toBe('all')
     expect(seat.seat.weight).toBe(2)
   })
 
@@ -183,19 +178,15 @@ seat:
 ---`)).toThrow(/unknown field.*budget/)
   })
 
-  it('rejects sees values the contract does not define', () => {
+  it('rejects the removed sees field instead of ignoring it', () => {
+    // Visibility is gone: everyone hears the same pool, so a seat file that still
+    // carries `sees` is a stale contract, and silence would leave it in place.
     expect(() => parse(`---
 id: grom
 role: 读者
 seat:
-  sees: lead-only
----`)).toThrow(/sees must be "all" or "none"/)
-    expect(() => parse(`---
-id: grom
-role: 读者
-seat:
-  sees: [host]
----`)).toThrow(/sees must be "all" or "none"/)
+  sees: none
+---`)).toThrow(/unknown field.*sees/)
   })
 
   it('does not convert types implicitly', () => {

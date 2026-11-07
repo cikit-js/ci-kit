@@ -42,7 +42,6 @@ persona:
   style: 冷静、不带情绪
 
 seat:
-  sees: all
   canVeto: true
   weight: 1
   maxTokens: 80

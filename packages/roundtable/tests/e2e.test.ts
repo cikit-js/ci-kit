@@ -63,7 +63,6 @@ identity:
   avatar: 🛡️
 seat:
   output: json
-  sees: none
 ---
 麦迪文。
 `
@@ -675,7 +674,10 @@ describe('resumeRoundtable', () => {
     })
     expect(resumed.status).toBe('passed')
     expect(resumed.record.statements[0]!.content).toBe('这篇文章说的是我遇到的问题')
-    expect(resumed.record.statements.length).toBeGreaterThan(1)
+    // The kept line survives and the resumed seat speaks on top of it. One new
+    // statement is the expected shape here: a single seat has nobody to answer,
+    // so the meeting ends after its line instead of looping to the deadline.
+    expect(resumed.record.statements.length).toBe(2)
     // The resumed seat was asked with the kept line on the table.
     expect(second.calls[0]!.prompt).toContain('这篇文章说的是我遇到的问题')
   })

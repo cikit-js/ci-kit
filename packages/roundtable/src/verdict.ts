@@ -9,6 +9,8 @@ import type { Table } from './table'
  * conclusion years later.
  */
 export interface SeatVerdict {
+  /** The line the seat said, in words the other seats can read. */
+  say?: string
   verdict?: 'pass' | 'reject'
   /** Self-reported quality score, 0–1. Recorded, not used for the decision. */
   score?: number
@@ -16,6 +18,17 @@ export interface SeatVerdict {
   suggestions?: string[]
   /** Required for a veto. A veto without one is ignored. */
   reason?: string
+  /** The seat reports it has nothing left to argue; the engine quiets it. */
+  done?: boolean
+  /**
+   * The host's closing plan, when a meeting is deciding what to write rather
+   * than whether something may ship. `title` closes stage one; the rest closes
+   * stage two.
+   */
+  angle?: string
+  audience?: string
+  outline?: string
+  title?: string
 }
 
 /** One seat's final word in a discussion, after the last-statement rule. */
@@ -130,12 +143,30 @@ export function readVerdict(raw: unknown): SeatVerdict {
     : undefined
   const issues = strings(source.issues)
   const suggestions = strings(source.suggestions)
+  // Only an explicit `true` counts. A missing field, a string "true" or any
+  // other shape leaves the seat speaking, which is the safe default: a seat
+  // wrongly kept in the room costs one turn, a seat wrongly silenced costs its
+  // whole judgment.
+  const done = source.done === true
+    ? true
+    : undefined
+  const line = (value: unknown): string | undefined =>
+    typeof value === 'string' && value.trim()
+      ? value.trim()
+      : undefined
+  const say = line(source.say)
   return {
+    say,
     verdict,
     score,
     issues,
     suggestions,
-    reason
+    reason,
+    done,
+    angle: line(source.angle),
+    audience: line(source.audience),
+    outline: line(source.outline),
+    title: line(source.title)
   }
 }
 

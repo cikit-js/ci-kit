@@ -30,7 +30,7 @@ export interface JsonSchema {
  * expressible without inventing a wrapper object.
  */
 export interface JsonProperty {
-  type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object'
+  type?: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object' | 'null'
   description?: string
   /** Fixed set of allowed values. */
   enum?: readonly string[]
@@ -40,6 +40,13 @@ export interface JsonProperty {
   properties?: Record<string, JsonProperty>
   required?: readonly string[]
   additionalProperties?: boolean
+  /**
+   * Alternatives, for a field that is not one type — `string | null` above all.
+   *
+   * The JSON Schema that providers accept spells a nullable field this way, and
+   * `type` itself stays a single string so existing schemas keep working.
+   */
+  anyOf?: readonly JsonProperty[]
 }
 
 export interface TextOptions {
@@ -63,6 +70,19 @@ export interface TextOptions {
    */
   schema?: JsonSchema
   temperature?: number
+  /**
+   * How hard a reasoning model should think before answering.
+   *
+   * Omitted means the provider's own default: the caller states a preference
+   * only when it has one. Providers that always reason reject `none`; they
+   * still honour the graded levels.
+   *
+   * This matters because reasoning and the answer share one `maxTokens`
+   * budget. A model that thinks for 2000 tokens returns an empty answer when
+   * the budget is 80, so a caller wanting a one-line reply either lowers the
+   * effort or raises the budget.
+   */
+  reasoningEffort?: ReasoningEffort
   /**
    * Transport retries. Defaults to the http package value.
    * Pass 0 for paid or non-idempotent calls: the provider may already have
@@ -223,6 +243,12 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
   }
   if (options.temperature !== undefined) {
     body.temperature = options.temperature
+  }
+  if (options.reasoningEffort !== undefined) {
+    // Sent as the OpenAI-compatible field: DashScope and the other
+    // compatible-mode providers read it, and a provider that does not know it
+    // ignores it rather than failing the call.
+    body.reasoning_effort = options.reasoningEffort
   }
   if (wantJson) {
     body.response_format = options.schema && supportsJsonSchema(provider)
@@ -407,6 +433,15 @@ async function readImagePayload(item: ImageItem, provider: ImageProvider, timeou
 }
 
 export type ImageFormat = 'png' | 'jpeg'
+
+/**
+ * Graded reasoning effort for thinking models.
+ *
+ * `none` asks for no reasoning at all; providers whose model always thinks
+ * reject it, so callers that must work across providers stick to the graded
+ * levels and let the provider default decide.
+ */
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'max'
 
 export function detectImageFormat(bytes: Uint8Array): ImageFormat | null {
   if (bytes.length >= 4 && PNG_MAGIC.every((byte, index) => bytes[index] === byte)) {

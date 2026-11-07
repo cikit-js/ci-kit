@@ -9,23 +9,6 @@ function seat(source: string): Seat {
   return parseSeat(readFrontmatter(source, 'f.md'), 'f.md')
 }
 
-const OPEN = seat(`---
-id: grom
-role: 门店读者视角
-identity:
-  name: 格罗姆
----`)
-
-const BLIND = seat(`---
-id: guard
-role: 事实审核
-identity:
-  name: 周慎
-seat:
-  sees: none
-  output: json
----`)
-
 function statement(overrides: Partial<Statement>): Statement {
   return {
     seat: 'jaina',
@@ -68,22 +51,18 @@ const POOL: Statement[] = [
 ]
 
 describe('visibleStatements', () => {
-  it('shows the whole pool to a seat that hears everyone', () => {
-    expect(visibleStatements(OPEN, POOL).map(item => item.content)).toEqual([
+  it('returns the whole completed pool, with no per-seat filter', () => {
+    expect(visibleStatements(POOL).map(item => item.content)).toEqual([
       '这个方案我们店做不到',
       '开头太平，读者会划走',
       '不过第三个动作可以试'
     ])
   })
 
-  it('shows nothing to a seat that judges on its own', () => {
-    expect(visibleStatements(BLIND, POOL)).toEqual([])
-  })
-
   it('leaves failed statements out of what anyone hears', () => {
-    const contents = visibleStatements(OPEN, POOL).map(item => item.content)
+    const contents = visibleStatements(POOL).map(item => item.content)
     expect(contents.some(text => text.includes('boom'))).toBe(false)
-    expect(visibleStatements(OPEN, POOL).some(item => item.status !== 'completed')).toBe(false)
+    expect(visibleStatements(POOL).some(item => item.status !== 'completed')).toBe(false)
   })
 })
 
@@ -130,17 +109,18 @@ describe('buildUserPrompt', () => {
     expect(prompt).not.toContain('## 上一轮的否决理由')
   })
 
-  it('shows a blind seat the topic but none of the discussion', () => {
+  it('omits the discussion block while the pool is still empty', () => {
+    // The opening turn: every seat starts at once, so nobody has spoken yet.
+    // The topic and material are there; the discussion section is not.
     const prompt = buildUserPrompt({
       topic: '文章能不能发',
       brief: '机审已过',
       context: ['文章正文'],
-      visible: visibleStatements(BLIND, POOL)
+      visible: []
     })
     expect(prompt).toContain('文章能不能发')
     expect(prompt).toContain('文章正文')
     expect(prompt).not.toContain('## 前序发言')
-    expect(prompt).not.toContain('开头太平')
   })
 
   it('renders a statement with who said it, not which seat id it was', () => {
@@ -171,7 +151,7 @@ describe('buildUserPrompt', () => {
     const prompt = buildUserPrompt({
       topic: 'q',
       context: [],
-      visible: visibleStatements(BLIND, POOL),
+      visible: visibleStatements(POOL),
       revisionNotes: ['乌瑟尔（合规与风险）：提到具体金额不能公开']
     })
     expect(prompt).toContain('## 上一轮的否决理由')
@@ -210,8 +190,14 @@ seat:
   })
 
   it('states the output contract as a schema, not as prose', () => {
-    expect(VERDICT_SCHEMA.required).toEqual(['verdict', 'reason'])
+    // Every seat has to say something and report whether it is finished. The
+    // closing plan fields stay optional: only the host fills them.
+    expect(VERDICT_SCHEMA.required).toEqual(['say', 'done'])
     expect(VERDICT_SCHEMA.properties.verdict.enum).toEqual(['pass', 'reject'])
+    // No candidates any more: the meeting names the article itself, so there is
+    // no id to choose from. `title` is what closes stage one.
+    expect(Object.keys(VERDICT_SCHEMA.properties)).not.toContain('candidateId')
+    expect(VERDICT_SCHEMA.properties.title.type).toBe('string')
     // The decision is the program's, so there is no field for it.
     expect(Object.keys(VERDICT_SCHEMA.properties)).not.toContain('approved')
     expect(VERDICT_SCHEMA.additionalProperties).toBe(false)

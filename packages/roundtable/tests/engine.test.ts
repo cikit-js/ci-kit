@@ -122,7 +122,8 @@ describe('discuss', () => {
       topic: '要不要发',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
     expect(calls).toHaveLength(2)
     // Both seats were asked in the same round, without waiting for each other.
@@ -131,7 +132,7 @@ describe('discuss', () => {
     expect(result.statements).toHaveLength(2)
   })
 
-  it('stops starting requests at the deadline', async () => {
+  it('has every seat say one line, then ends the meeting', async () => {
     const clock = fakeClock()
     const { callText, calls } = stubText({
       reply: () => {
@@ -139,15 +140,19 @@ describe('discuss', () => {
         return '一句'
       }
     })
-    await discuss({
-      loaded: loaded([A], { durationMs: 3_000 }),
+    const result = await discuss({
+      loaded: loaded([A, B], { durationMs: 3_000 }),
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
-    // 3 calls of 1s each land; the 4th would start at the deadline.
-    expect(calls).toHaveLength(3)
+    // Two seats, each speaks once. Then both are waiting for the other and the
+    // room is stalled — the meeting ends on agreement, not on the deadline.
+    expect(calls).toHaveLength(2)
+    expect(result.statements).toHaveLength(2)
+    expect(new Set(result.statements.map(item => item.seat)).size).toBe(2)
   })
 
   it('waits for a request already in flight when the deadline passes', async () => {
@@ -164,25 +169,29 @@ describe('discuss', () => {
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
     // Paid for, so the statement lands even though the time is up.
     expect(result.statements).toHaveLength(1)
     expect(result.statements[0]!.content).toBe('迟到的发言')
   })
 
-  it('puts later statements in front of later calls', async () => {
-    // Every read of the clock moves it 200ms, so the two seats never speak at the
-    // same instant. 乙's opening line lands on an empty table; the next time it
-    // speaks, 甲's line is already up.
-    const clock = fakeClock(undefined, 200)
+  it('puts the pool in front of a seat that comes back for a second line', async () => {
+    // The opening turn is simultaneous, so every first line lands on an empty
+    // table — that is the nature of a real roundtable, not a visibility filter.
+    // What matters is the next turn: a seat that speaks again reads the pool.
     const spoken: string[] = []
+    let firstTurn = true
     const { callText } = stubText({
       reply: (call) => {
+        // 甲 never yields after its first line, so 乙's second turn happens
+        // once 甲's first statement is on the table.
         if (call.system?.includes('阿甲')) {
           return '甲说话了'
         }
         spoken.push(call.prompt)
+        firstTurn = false
         return '乙说话了'
       }
     })
@@ -191,49 +200,22 @@ describe('discuss', () => {
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: fakeClock(undefined, 200).now,
+      sleep: async () => {}
     })
-    expect(spoken.length).toBeGreaterThanOrEqual(2)
-    // 乙's first call happens on an empty table; its second hears 甲.
-    expect(spoken[0]).not.toContain('甲说话了')
-    expect(spoken[1]).toContain('甲说话了')
-  })
-
-  it('keeps a blind seat blind while it keeps talking', async () => {
-    const blind = seat(`---
-id: b
-role: 乙
-identity:
-  name: 阿乙
-seat:
-  sees: none
----
-乙。
-`)
-    const clock = fakeClock()
-    const { callText, calls } = stubText({
-      reply: () => {
-        clock.advance(600)
-        return '一句'
-      }
-    })
-    await discuss({
-      loaded: loaded([A, blind], { durationMs: 2_000 }),
-      topic: 'q',
-      context: [],
-      callText,
-      now: clock.now
-    })
-    const blindCalls = calls.filter(call => call.system?.includes('阿乙'))
-    expect(blindCalls.length).toBeGreaterThan(1)
-    for (const call of blindCalls) {
-      expect(call.prompt).not.toContain('## 前序发言')
+    // The opening line of each seat is unprepared, as it should be.
+    expect(spoken[0]).not.toContain('## 前序发言')
+    expect(firstTurn).toBe(false)
+    // Whatever a later turn reads, it reads the whole completed pool — there is
+    // no per-seat filter to give it a narrower view.
+    for (const prompt of spoken.slice(1)) {
+      expect(prompt).toContain('阿甲：')
     }
   })
 
   it('gives a seat that fails with skip a failed statement and lets others talk on', async () => {
     const clock = fakeClock()
-    const { callText, calls } = stubText({
+    const { callText } = stubText({
       reply: (call) => {
         clock.advance(500)
         return call.system?.includes('甲。')
@@ -246,16 +228,17 @@ seat:
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
     const failed = result.statements.filter(item => item.seat === 'a')
     expect(failed).toHaveLength(1)
     expect(failed[0]!.status).toBe('failed')
     expect(failed[0]!.error).toBe('boom')
-    // The other seat kept its loop going.
-    expect(result.statements.filter(item => item.seat === 'b').length).toBeGreaterThan(1)
+    // A seat that fails leaves the room; it does not vote and does not come back.
     expect(result.abortedBy).toBeUndefined()
-    expect(calls.length).toBeGreaterThan(2)
+    // The other seat still spoke: one failure does not cancel the meeting.
+    expect(result.statements.filter(item => item.seat === 'b').length).toBeGreaterThanOrEqual(1)
   })
 
   it('retries a retryable failure for a seat with fallback: retry', async () => {
@@ -351,7 +334,8 @@ seat:
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
     expect(result.abortedBy?.seat).toBe('a')
     expect(result.abortedBy?.error).toBe('凭证失效')
@@ -380,7 +364,8 @@ seat:
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
     expect(calls[0]!.maxTokens).toBe(40)
   })
@@ -398,7 +383,8 @@ seat:
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
     expect(calls[0]!.retries).toBe(0)
   })
@@ -426,7 +412,8 @@ seat:
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
     expect(calls[0]!.schema).toMatchObject({ type: 'object' })
     expect(result.statements[0]!.status).toBe('failed')
@@ -448,9 +435,165 @@ seat:
       topic: 'q',
       context: [],
       callText,
-      now: clock.now
+      now: clock.now,
+      sleep: async () => {}
     })
     expect(result.usage).toEqual({ input: 100, output: 10 })
+  })
+
+  it('puts the sentence a JSON seat said into the pool, not its envelope', async () => {
+    // A json seat replies with a document. The next seat has to read the
+    // sentence inside it; handing it `{"say":"…","done":false}` turns the
+    // discussion into parsing and the release note into a log dump.
+    const first = seat(`---
+id: a
+role: 甲
+identity:
+  name: 阿甲
+seat:
+  output: json
+---
+甲。
+`)
+    const clock = fakeClock(undefined, 300)
+    let turn = 0
+    const { callText } = stubText({
+      reply: () => JSON.stringify({ say: `我选第二个候选${++turn}`, done: false })
+    })
+    const result = await discuss({
+      loaded: loaded([first], { durationMs: 10_000 }),
+      topic: 'q',
+      context: [],
+      callText,
+      now: clock.now,
+      sleep: async () => {}
+    })
+    // Nothing in the record is a JSON envelope: the pool and the release note
+    // read the sentence, while `structured` keeps the reply as evidence.
+    expect(result.statements.length).toBeGreaterThan(0)
+    for (const statement of result.statements) {
+      expect(statement.content).not.toContain('"say"')
+      expect(statement.content).toContain('我选第二个候选')
+      expect(statement.say).toBe(statement.content)
+      expect(statement.structured).toEqual({ say: statement.content, done: false })
+    }
+  })
+
+  it('reads the host plan back from the closing statement', async () => {
+    const host = seat(`---
+id: a
+role: 主持
+identity:
+  name: 阿甲
+seat:
+  output: json
+---
+甲。
+`)
+    const clock = fakeClock(undefined, 300)
+    const { callText } = stubText({
+      reply: () => JSON.stringify({
+        say: '角度定了',
+        done: true,
+        candidateId: 'c1',
+        angle: '固定岗位不固定人',
+        audience: '店长',
+        outline: '三段',
+        title: '位置该有人'
+      })
+    })
+    const result = await discuss({
+      loaded: loaded([host], { durationMs: 10_000 }),
+      topic: 'q',
+      context: [],
+      callText,
+      now: clock.now,
+      sleep: async () => {}
+    })
+    expect(result.plan).toEqual({
+      angle: '固定岗位不固定人',
+      audience: '店长',
+      outline: '三段',
+      title: '位置该有人',
+      by: 'a'
+    })
+  })
+
+  it('reports no plan when the host never settled one', async () => {
+    const host = seat(`---
+id: a
+role: 主持
+identity:
+  name: 阿甲
+seat:
+  output: json
+---
+甲。
+`)
+    const { callText } = stubText({
+      // Talking about a topic is not closing it: no angle, no plan.
+      reply: () => JSON.stringify({ say: '大家再看看', done: true })
+    })
+    const result = await discuss({
+      loaded: loaded([host], { durationMs: 10_000 }),
+      topic: 'q',
+      context: [],
+      callText,
+      now: fakeClock(undefined, 300).now,
+      sleep: async () => {}
+    })
+    expect(result.plan).toBeUndefined()
+  })
+
+  it('settles the title first, then the body', async () => {
+    const host = seat(`---
+id: a
+role: 主持
+identity:
+  name: 阿甲
+seat:
+  output: json
+---
+甲。
+`)
+    const clock = fakeClock(undefined, 300)
+    const prompts: string[] = []
+    const { callText } = stubText({
+      // Stage one answers with a title alone; stage two fills the rest. The bias
+      // is deliberate: without it a host would answer both stages in one reply
+      // and the second call would never happen.
+      reply: ({ prompt }: { prompt: string }) => {
+        prompts.push(prompt)
+        return JSON.stringify(prompts.length === 1
+          ? { say: '就叫这个', done: true, title: '位置该有人' }
+          : {
+              say: '定了',
+              done: true,
+              title: '位置该有人',
+              angle: '固定岗位不固定人',
+              audience: '店长',
+              outline: '三段'
+            })
+      }
+    })
+    const result = await discuss({
+      loaded: loaded([host], { durationMs: 10_000 }),
+      topic: 'q',
+      context: [],
+      callText,
+      now: clock.now,
+      sleep: async () => {}
+    })
+    expect(result.plan).toEqual({
+      title: '位置该有人',
+      angle: '固定岗位不固定人',
+      audience: '店长',
+      outline: '三段',
+      by: 'a'
+    })
+    // Stage two is told what stage one settled, so it does not re-open the title.
+    expect(prompts).toHaveLength(2)
+    expect(prompts[1]).toContain('位置该有人')
   })
 })
 

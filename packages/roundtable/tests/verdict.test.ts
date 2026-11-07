@@ -255,8 +255,19 @@ describe('readVerdict', () => {
       reason: '平均寿命那句没给出处',
       score: 0.2,
       issues: ['缺出处'],
-      suggestions: ['补来源']
+      suggestions: ['补来源'],
+      done: undefined
     })
+  })
+
+  it('reads done only from an explicit true', () => {
+    // The engine quiets a seat on `done`, so the only safe reading is the
+    // literal boolean. Anything else keeps the seat in the room.
+    expect(readVerdict({ verdict: 'pass', done: true }).done).toBe(true)
+    expect(readVerdict({ verdict: 'pass', done: false }).done).toBeUndefined()
+    expect(readVerdict({ verdict: 'pass', done: 'true' }).done).toBeUndefined()
+    expect(readVerdict({ verdict: 'pass', done: 1 }).done).toBeUndefined()
+    expect(readVerdict({ verdict: 'pass' }).done).toBeUndefined()
   })
 
   it('never infers a verdict from anything but the verdict field', () => {

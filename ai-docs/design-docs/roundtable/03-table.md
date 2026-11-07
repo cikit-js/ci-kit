@@ -199,7 +199,7 @@ persona:
 seat:
   canVeto: true
   weight: 1
-  maxTokens: 80
+  maxTokens: 1000
   fallback: skip
   output: json
 ---

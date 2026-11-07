@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from '@ci-kit/ai'
 import type { Document } from './frontmatter'
 
 /** What the meeting does after a veto. */
@@ -18,6 +19,14 @@ export interface Table {
   maxPoolTokens: number
   /** Weighted pass ratio in 0–1 that counts as approved. */
   threshold: number
+  /**
+   * How hard thinking models should think before each turn.
+   *
+   * Omitted keeps the provider default. A discussion turn is one short line, so
+   * a project can lower this to stop reasoning from eating the seat's
+   * `maxTokens` and leaving an empty reply.
+   */
+  reasoningEffort?: ReasoningEffort
   /** Action taken when the discussion ends in a veto. */
   onVeto: OnVeto
   /** How many attempts the meeting may take in total. */
@@ -42,11 +51,14 @@ export const TABLE_DEFAULTS = {
 
 const ON_VETO: readonly OnVeto[] = ['re-propose', 'revise', 'abort']
 
+const REASONING_EFFORT: readonly ReasoningEffort[] = ['none', 'low', 'medium', 'high', 'max']
+
 const TABLE_KEYS = new Set([
   'title',
   'durationMs',
   'maxPoolTokens',
   'threshold',
+  'reasoningEffort',
   'onVeto',
   'maxAttempts'
 ])
@@ -92,6 +104,17 @@ function asThreshold(value: unknown): number {
   return value
 }
 
+function asReasoningEffort(value: unknown): ReasoningEffort | undefined {
+  if (value === undefined || value === null) {
+    // No default: the provider decides how hard its own model thinks.
+    return undefined
+  }
+  if (typeof value !== 'string' || !REASONING_EFFORT.includes(value as ReasoningEffort)) {
+    throw new TableError(`table: reasoningEffort must be ${REASONING_EFFORT.join(', ')}`)
+  }
+  return value as ReasoningEffort
+}
+
 function asOnVeto(value: unknown): OnVeto {
   if (value === undefined || value === null) {
     return TABLE_DEFAULTS.onVeto
@@ -123,6 +146,7 @@ export function parseTable(document: Document, fallbackTitle: string): Table {
     durationMs: asPositiveInteger(data.durationMs, 'durationMs', TABLE_DEFAULTS.durationMs),
     maxPoolTokens: asPositiveInteger(data.maxPoolTokens, 'maxPoolTokens', TABLE_DEFAULTS.maxPoolTokens),
     threshold: asThreshold(data.threshold),
+    reasoningEffort: asReasoningEffort(data.reasoningEffort),
     onVeto: asOnVeto(data.onVeto),
     maxAttempts: asPositiveInteger(data.maxAttempts, 'maxAttempts', TABLE_DEFAULTS.maxAttempts)
   }

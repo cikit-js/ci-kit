@@ -1,8 +1,6 @@
 import type { Document } from './frontmatter'
 import type { YamlMapping, YamlValue } from './yaml'
 
-/** What a seat can hear from the pool. `none` keeps an independent judgement independent. */
-export type Sees = 'all' | 'none'
 /** What happens to the meeting when this seat's call fails. */
 export type Fallback = 'skip' | 'retry' | 'abort'
 /** `json` is what lets a seat vote; `text` only speaks. */
@@ -27,7 +25,6 @@ export interface SeatPersona {
 }
 
 export interface SeatPowers {
-  sees: Sees
   canVeto: boolean
   weight: number
   /** Upper bound for one statement, in tokens. */
@@ -56,13 +53,20 @@ export class SeatError extends Error {
   }
 }
 
-/** Contract defaults; the docs table is the single source of these numbers. */
+/**
+ * Contract defaults; the docs table is the single source of these numbers.
+ *
+ * `maxTokens` covers the whole reply, and for a thinking model the reasoning
+ * tokens share that budget. A seat has to fit its sentence plus, when it is the
+ * host, the five plan fields — 80 was measured to truncate both. 1000 leaves
+ * room for the closing reply without turning a one-line turn into an essay: the
+ * model stops when its JSON is complete.
+ */
 export const SEAT_DEFAULTS = {
   enabled: true,
-  sees: 'all',
   canVeto: false,
   weight: 1,
-  maxTokens: 80,
+  maxTokens: 1000,
   fallback: 'skip',
   output: 'text'
 } as const
@@ -91,7 +95,6 @@ const PERSONA_KEYS = new Set([
   'avoid'
 ])
 const SEAT_KEYS = new Set([
-  'sees',
   'canVeto',
   'weight',
   'maxTokens',
@@ -123,7 +126,6 @@ const FLAT_ALIASES = new Map<string, 'identity' | 'persona' | 'seat'>([
     'avoid'
   ].map(key => [key, 'persona'] as const),
   ...[
-    'sees',
     'canVeto',
     'weight',
     'maxTokens',
@@ -235,16 +237,6 @@ function groupData(data: YamlMapping, label: string) {
     groups[target][key] = value
   }
   return groups
-}
-
-function parseSees(value: YamlValue | undefined, label: string): Sees {
-  if (value === undefined || value === null) {
-    return SEAT_DEFAULTS.sees
-  }
-  if (value === 'all' || value === 'none') {
-    return value
-  }
-  throw new SeatError(label, `seat.sees must be "all" or "none"; got ${JSON.stringify(value)}`)
 }
 
 function parseFallback(value: YamlValue | undefined, label: string): Fallback {
@@ -363,7 +355,6 @@ export function parseSeat(document: Document, source: string): Seat {
       avoid: asString(persona.avoid, label, 'persona.avoid')
     },
     seat: {
-      sees: parseSees(seat.sees, label),
       canVeto: asBoolean(seat.canVeto, label, 'seat.canVeto', SEAT_DEFAULTS.canVeto),
       weight,
       maxTokens,

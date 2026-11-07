@@ -5,7 +5,7 @@ import type { AttemptState, RecordVerdict, RoundtableRecord, RunState } from './
 import { mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { defaultOutDir, loadRoundtable, RoundtableConfigError } from './config'
-import { discuss, finalVotes } from './engine'
+import { discuss, finalVotes, planFrom } from './engine'
 import { buildRecord, isoLocal, makeRunId, RECORD_SCHEMA, renderRecordMarkdown, writeJson, writeText } from './record'
 import { judgeMeeting, readVerdict, vetoReason } from './verdict'
 
@@ -13,12 +13,12 @@ export { checkRoundtable, defaultOutDir, loadRoundtable, RoundtableConfigError }
 export type { LoadedRoundtable } from './config'
 export { ARTIFACT_THRESHOLD, discuss, estimateTokens, finalVotes, trimPool } from './engine'
 export type { DiscussionResult, EngineOptions, RoundtableStatus, TextCaller, Usage } from './engine'
-export { buildUserPrompt, visibleStatements } from './prompt'
+export { buildUserPrompt, CLOSE_BODY_INSTRUCTION, CLOSE_NOW_INSTRUCTION, CLOSE_TITLE_INSTRUCTION, visibleStatements } from './prompt'
 export type { ArtifactRef, Statement, StatementStatus } from './prompt'
 export { RECORD_SCHEMA as ROUNDTABLE_SCHEMA } from './record'
 export type { AttemptState, FinalStatus, RecordVerdict, RoundtableRecord, RunState } from './record'
 export { renderSeatSystemPrompt, SEAT_DEFAULTS } from './seat'
-export type { Fallback, Seat, SeatIdentity, SeatOutput, SeatPersona, SeatPowers, Sees } from './seat'
+export type { Fallback, Seat, SeatIdentity, SeatOutput, SeatPersona, SeatPowers } from './seat'
 export { TABLE_DEFAULTS } from './table'
 export type { OnVeto, Table } from './table'
 export { judgeMeeting, readVerdict } from './verdict'
@@ -91,6 +91,13 @@ function toContextList(context: string | string[] | undefined): string[] {
 /** Turn the finished pool into the meeting's verdict. */
 function judgeAttempt(loaded: LoadedRoundtable, statements: Statement[]): RecordVerdict {
   const seats = loaded.seats.filter(seat => seat.enabled)
+  // A planning meeting is judged by whether it produced a usable plan — both
+  // stages, not just the title. Its seats never cast a `verdict`, so the weighted
+  // judgement would read an empty ballot as a rejection.
+  const plan = planFrom(statements)
+  if (plan?.angle) {
+    return { passed: true, vetoed: [], score: 1 }
+  }
   const votes = finalVotes(seats, statements)
   const judgement = judgeMeeting(seats, votes, loaded.table)
   return {
@@ -251,10 +258,10 @@ async function runLoop(context: RunnerContext, resumeFrom?: { pool: Statement[],
           }
         }
       })
-      // Only the statements this run produced are new; a resumed pool was
-      // already on disk and is not written twice.
-      const fresh = result.statements.slice(resumeFrom?.pool?.length ?? 0)
-      attempt.statements.push(...fresh)
+      // `discuss` already returns only what this run produced; the resumed pool
+      // it was given is not part of `result.statements`. Slicing again here
+      // would drop the first new line of every resumed discussion.
+      attempt.statements.push(...result.statements)
       state.pool = attempt.statements
       state.usage.input += result.usage.input
       state.usage.output += result.usage.output
