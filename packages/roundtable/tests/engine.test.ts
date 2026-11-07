@@ -673,6 +673,110 @@ seat:
     // A later statement overrides an earlier one for the same key.
     expect(result.output).toEqual({ title: `标题${turn}` })
   })
+
+  it('gives a stalled room one more turn instead of ending on silence', async () => {
+    // Every seat waits for someone else to move, so a room can deadlock with
+    // nobody finished and no decision made. Two seats are the smallest room that
+    // can actually deadlock: one seat alone is never waiting for anyone.
+    const a = seat(`---
+id: a
+role: 甲
+identity:
+  name: 阿甲
+seat:
+  output: json
+---
+甲。
+`)
+    const b = seat(`---
+id: b
+role: 乙
+identity:
+  name: 阿乙
+seat:
+  output: json
+---
+乙。
+`)
+    const clock = fakeClock(undefined, 300)
+    const prompts: string[] = []
+    const { callText } = stubText({
+      reply: ({ prompt }: { prompt: string }) => {
+        prompts.push(prompt)
+        // Everyone gives an opinion and waits; then the seat told the room went
+        // quiet settles it.
+        if (prompt.includes('会场静下来了')) {
+          return JSON.stringify({
+            speech: '那就这么定',
+            finished: true,
+            output: { title: '定了' }
+          })
+        }
+        return JSON.stringify({ speech: '我觉得可以再等等', finished: false })
+      }
+    })
+    const result = await discuss({
+      loaded: loaded([a, b], {
+        durationMs: 10_000,
+        outputFields: { title: '文章标题' }
+      }),
+      topic: 'q',
+      context: [],
+      callText,
+      now: clock.now,
+      sleep: async () => {}
+    })
+    // Both seats spoke once, then at least one took its extra turn.
+    expect(prompts.length).toBeGreaterThan(2)
+    expect(prompts.some(prompt => prompt.includes('会场静下来了'))).toBe(true)
+    expect(result.output).toEqual({ title: '定了' })
+  })
+
+  it('stalls for real when the extra turn settles nothing either', async () => {
+    const a = seat(`---
+id: a
+role: 甲
+identity:
+  name: 阿甲
+seat:
+  output: json
+---
+甲。
+`)
+    const b = seat(`---
+id: b
+role: 乙
+identity:
+  name: 阿乙
+seat:
+  output: json
+---
+乙。
+`)
+    const clock = fakeClock(undefined, 300)
+    let calls = 0
+    const { callText } = stubText({
+      reply: () => {
+        calls++
+        return JSON.stringify({ speech: '还是再等等', finished: false })
+      }
+    })
+    const result = await discuss({
+      loaded: loaded([a, b], {
+        durationMs: 10_000,
+        outputFields: { title: '文章标题' }
+      }),
+      topic: 'q',
+      context: [],
+      callText,
+      now: clock.now,
+      sleep: async () => {}
+    })
+    // One extra turn each at most, on top of the opening round: asking forever
+    // would never end the meeting.
+    expect(calls).toBeLessThanOrEqual(6)
+    expect(result.output).toBeUndefined()
+  })
 })
 
 describe('finalVotes', () => {

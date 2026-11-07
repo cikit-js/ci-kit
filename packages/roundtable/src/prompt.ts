@@ -97,6 +97,14 @@ export interface PromptInput {
   askFinished?: boolean
   /** The `output.fields` this table declared, when it declared any. */
   outputFields?: Record<string, string>
+  /**
+   * The room has gone quiet and this seat still has not finished.
+   *
+   * Every seat waits for someone else to move, so a room can deadlock with
+   * nobody satisfied and no decision made. This tells the seat now holding the
+   * floor that waiting is over for it: say what you were waiting to say.
+   */
+  roomQuiet?: boolean
 }
 
 /**
@@ -127,6 +135,24 @@ export const FINISHED_INSTRUCTION = [
   '',
   '判断标准只有一条：**这句话还能不能被继续讨论**。',
   '能，就 `false`；不能，只有同意或反对两条路，就是 `true`。'
+].join('\n')
+
+/**
+ * What a seat is told when the room fell silent while it still had not finished.
+ *
+ * Nobody is being polite by waiting here: every seat sits on the same rule, so
+ * waiting is what ends the meeting. This is the one seat now holding the floor.
+ */
+export const ROOM_QUIET_INSTRUCTION = [
+  '## 会场静下来了',
+  '',
+  '大家都停了，不是都说完了，是谁都在等别人先开口。现在轮到你说。',
+  '',
+  '- 有你还没说到的判断，就说出来',
+  '- 你负责的事已经有结论，就把 `finished` 设成 true',
+  '- 你负责的事需要别人先表态，就点名把话说清楚',
+  '',
+  '不要再说「等某某先说」。会场就这么停住的。'
 ].join('\n')
 
 /**
@@ -200,6 +226,13 @@ export function buildUserPrompt(input: PromptInput): string {
 
   if (input.askFinished) {
     blocks.push(FINISHED_INSTRUCTION)
+  }
+
+  if (input.roomQuiet) {
+    // The room stopped because everyone was waiting, not because everyone was
+    // done. Saying so is the difference between a meeting that ends in a
+    // decision and one that ends because nobody wanted to go first.
+    blocks.push(ROOM_QUIET_INSTRUCTION)
   }
 
   if (input.outputFields && Object.keys(input.outputFields).length) {

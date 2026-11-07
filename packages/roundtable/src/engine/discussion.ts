@@ -143,6 +143,23 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
   /** Seats that have left the room for good: failed, or finished their loop. */
   const gone = new Set<string>()
 
+  /**
+   * Seats that already took their one extra turn after the room went quiet.
+   *
+   * Without this a stall would replay forever: every seat is told to speak,
+   * everyone speaks, the room settles again, and the same thing repeats.
+   */
+  const lastChanceUsed = new Set<string>()
+
+  /**
+   * Seats that said, in so many words, that their part is not done.
+   *
+   * The extra turn after a stall is only worth spending on a seat in here. A
+   * reviewing seat answers `pass`/`reject` and never speaks to `finished`; it has
+   * nothing pending, so asking it again is a paid call that changes no decision.
+   */
+  const unfinished = new Set<string>()
+
   /** True when no live seat is able to speak without someone else moving first. */
   const stalled = (): boolean => {
     const live = seats.filter(seat => !gone.has(seat.id) && !quiet.has(seat.id))
@@ -184,6 +201,8 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
   const runSeat = async (seat: Seat): Promise<void> => {
     /** Wall-clock moment this seat started waiting for the pool; cleared on news. */
     let idleSince: number | undefined
+    /** This turn is the seat's one extra turn after the room went quiet. */
+    let lastChance = false
     while (!stopped) {
       if (now() >= deadline) {
         // Deadline reached: no new request is started. Requests already in
@@ -207,17 +226,51 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
         await sleep(pollMs)
         if (pool.length <= floor) {
           // Everyone waiting means nobody can produce what the others are
-          // waiting for: the room is stalled, not thinking. That is the normal
-          // way a discussion ends, not an edge case.
-          if (stalled() || now() >= deadline || Date.now() - waitingSince >= MAX_IDLE_MS) {
+          // waiting for: the room is stalled, not thinking.
+          //
+          // A stall is not the same as agreement. The normal way out is that a
+          // seat which has something left to say says it — but every seat is
+          // sitting on the same "wait for someone else" rule, so the room can
+          // deadlock with nobody finished. Give each unfinished live seat one
+          // last turn, once, and tell it the room went quiet; then stall for
+          // real if nothing comes of it.
+          if (stalled()) {
+            // A stall is only a problem for a meeting that owes something. When
+            // the table declared output fields, the room can deadlock with the
+            // fields still unfilled — and a seat that never said `finished` is
+            // exactly how that happens, because the model rarely reports it.
+            // A review-only meeting owes nothing, so it ends as before.
+            const owesFields = Object.keys(loaded.table.outputFields ?? {}).length > 0
+            const canFinish = seat.seat.output === 'json'
+            const pending = canFinish && (unfinished.has(seat.id) || owesFields)
+            if (pending && !lastChanceUsed.has(seat.id) && !quiet.has(seat.id)) {
+              lastChanceUsed.add(seat.id)
+              waiting.delete(seat.id)
+              idleSince = undefined
+              lastChance = true
+              // The gate would put this seat straight back into the wait it just
+              // left — the pool has not moved and will not move. Clear it so the
+              // loop falls through to the call this turn was granted for.
+              gate.delete(seat.id)
+            }
+            else {
+              waiting.delete(seat.id)
+              return
+            }
+          }
+          else if (now() >= deadline || Date.now() - waitingSince >= MAX_IDLE_MS) {
             waiting.delete(seat.id)
             return
           }
-          continue
+          else {
+            continue
+          }
         }
-        // The room moved; fall through and speak, and stop counting as waiting.
-        waiting.delete(seat.id)
-        idleSince = undefined
+        else {
+          // The room moved; fall through and speak, and stop counting as waiting.
+          waiting.delete(seat.id)
+          idleSince = undefined
+        }
       }
       else {
         idleSince = undefined
@@ -234,8 +287,12 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
           ? options.openingNotes ?? options.revisionNotes
           : options.revisionNotes,
         askFinished: seat.seat.output === 'json',
-        outputFields: loaded.table.outputFields
+        outputFields: loaded.table.outputFields,
+        // The room went quiet and this seat has still not finished: tell it so,
+        // or it will spend its extra turn waiting again.
+        roomQuiet: lastChance
       })
+      lastChance = false
 
       let outcome = await callSeat(seat, prompt, {
         env: options.env,
@@ -296,7 +353,16 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
         // This seat's own target is met. Wait to be named rather than burn turns
         // restating a settled conclusion.
         quiet.add(seat.id)
+        unfinished.delete(seat.id)
         return
+      }
+
+      // A seat that explicitly said its part is not done is the one worth a paid
+      // turn when the room later stalls. Read the raw reply: `readVerdict` only
+      // surfaces `finished: true`, so it cannot tell "not yet" from "no opinion".
+      const raw = statement.structured as { finished?: unknown } | undefined
+      if (raw?.finished === false) {
+        unfinished.add(seat.id)
       }
 
       // Hold the gate where the pool stood after this statement: the next turn
