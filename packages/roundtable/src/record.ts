@@ -1,4 +1,4 @@
-import type { RoundtableStatus, Usage } from './engine'
+import type { DiscussionPlan, RoundtableStatus, Usage } from './engine'
 import type { Statement } from './prompt'
 import type { Seat } from './seat'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -31,6 +31,14 @@ export interface RoundtableRecord {
   /** Every statement of the final attempt, in the order it entered the pool. */
   statements: Statement[]
   usage: Usage
+  /**
+   * What a planning meeting settled, when it settled anything.
+   *
+   * Recorded as a top-level field rather than left in the statements: the plan
+   * is the product of the meeting, and a caller reading the record should not
+   * have to replay the closing rules to recover it.
+   */
+  plan?: DiscussionPlan
   /** One line explaining an abort or a failure. Never a provider payload. */
   error?: string
 }
@@ -62,6 +70,13 @@ export interface RunState {
   brief?: string
   /** Material handed in by the caller, kept so a resume needs no arguments. */
   context: string[]
+  /**
+   * What the meeting decided, once it decided anything.
+   *
+   * Written when an attempt closes: the plan is what the caller came for, and it
+   * has to survive a crash between the discussion and the record being built.
+   */
+  plan?: DiscussionPlan
   /** Statements of the current attempt, in landing order. */
   pool: Statement[]
   /**
@@ -249,6 +264,9 @@ export function buildRecord(state: RunState, title: string): RoundtableRecord {
     verdict,
     statements: final?.statements ?? state.pool,
     usage: state.usage,
+    ...(state.plan
+      ? { plan: state.plan }
+      : {}),
     ...(state.error
       ? { error: state.error }
       : {})

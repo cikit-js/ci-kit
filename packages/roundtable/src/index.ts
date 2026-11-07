@@ -263,6 +263,11 @@ async function runLoop(context: RunnerContext, resumeFrom?: { pool: Statement[],
       // would drop the first new line of every resumed discussion.
       attempt.statements.push(...result.statements)
       state.pool = attempt.statements
+      // Kept on the state, not only in the statements: the record is written from
+      // here, and the plan is what a caller running a planning meeting wants.
+      if (result.plan) {
+        state.plan = result.plan
+      }
       state.usage.input += result.usage.input
       state.usage.output += result.usage.output
       abortedBy = result.abortedBy?.seat
