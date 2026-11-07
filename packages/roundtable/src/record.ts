@@ -21,7 +21,8 @@ export interface RecordVerdict {
 export interface RoundtableRecord {
   schema: number
   title: string
-  topic: string
+  /** Absent when the table opened its own question. */
+  topic?: string
   brief?: string
   startedAt: string
   finishedAt: string
@@ -66,7 +67,8 @@ export interface RunState {
   attempt: number
   startedAt: string
   finishedAt?: string
-  topic: string
+  /** The question, when the caller supplied one; a table may open its own. */
+  topic?: string
   brief?: string
   /** Material handed in by the caller, kept so a resume needs no arguments. */
   context: string[]
@@ -166,7 +168,11 @@ export function renderRecordMarkdown(record: RoundtableRecord, seats: Map<string
   const date = record.startedAt.slice(0, 10)
   lines.push(`# ${record.title} · ${date}`, '')
 
-  lines.push(`**议题**：${record.topic}`)
+  // Only when the caller set one: a table that opens its own question has no
+  // line to show here, and printing "undefined" would read as a bug.
+  if (record.topic) {
+    lines.push(`**议题**：${record.topic}`)
+  }
   if (record.brief) {
     lines.push(`**背景**：${record.brief}`)
   }

@@ -27,8 +27,8 @@ export type { Judgement, SeatVerdict, Vote } from './verdict'
 export interface RoundtableOptions {
   /** Directory holding `table.md` and `seats/`. */
   configDir: string
-  /** What this discussion must answer. Required: a table without a question is pointless. */
-  topic: string
+  /** What this discussion must answer. Optional: the rule file may open it instead. */
+  topic?: string
   /** Why the meeting was called. Optional. */
   brief?: string
   /** Material put on the table; a string is one item, an array is numbered in order. */
@@ -59,11 +59,17 @@ export interface RoundtableResult {
   used: number
 }
 
-function requireTopic(topic: string | undefined, where: string): string {
-  if (typeof topic !== 'string' || topic.trim() === '') {
-    throw new RoundtableConfigError(`${where}: topic is required; a discussion without a question has nothing to answer`)
-  }
-  return topic.trim()
+/**
+ * The question a meeting answers, when the caller supplies one.
+ *
+ * Optional on purpose: a table whose rule file says what to settle can open its
+ * own question, and forcing the CLI to carry it would put the agenda in code
+ * instead of in the configuration that the seats actually read.
+ */
+function readTopic(topic: string | undefined): string | undefined {
+  return typeof topic === 'string' && topic.trim() !== ''
+    ? topic.trim()
+    : undefined
 }
 
 function toContextList(context: string | string[] | undefined): string[] {
@@ -361,7 +367,7 @@ async function readState(runDir: string): Promise<RunState | null> {
  * errors throw, because those mean the meeting could not start at all.
  */
 export async function runRoundtable(options: RoundtableOptions): Promise<RoundtableResult> {
-  const topic = requireTopic(options.topic, 'runRoundtable')
+  const topic = readTopic(options.topic)
   const now = options.now ?? (() => Date.now())
   const loaded = await loadRoundtable({ configDir: options.configDir })
   const context = toContextList(options.context)
@@ -439,7 +445,7 @@ export async function resumeRoundtable(options: ResumeOptions): Promise<Roundtab
     throw new RoundtableConfigError('Rules changed since this run started; open a new meeting instead of resuming')
   }
   if (!state.topic) {
-    state.topic = requireTopic(options.topic, 'resumeRoundtable')
+    state.topic = readTopic(options.topic)
   }
 
   const persist = async (): Promise<void> => {

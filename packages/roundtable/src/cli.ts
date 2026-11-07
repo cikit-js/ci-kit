@@ -155,7 +155,7 @@ function summarize(result: RoundtableResult): string {
 cli
   .command('run', 'Hold one meeting: all seats talk at once, then the program judges')
   .option('--config <dir>', 'Roundtable directory', { default: DEFAULT_CONFIG })
-  .option('--topic <text>', 'What this meeting must answer (required)')
+  .option('--topic <text>', 'What this meeting must answer; omit to let the seats open it')
   .option('--brief <text>', 'Why the meeting is being held')
   .option('--context <text>', 'One material for the table; repeatable')
   .option('--context-file <path>', 'Read one material from a file; repeatable')
@@ -166,10 +166,10 @@ cli
   .action(async (options: Record<string, string | string[] | undefined>) => {
     try {
       rejectUnknown('run', options, RUN_FLAGS)
+      // A meeting may open its own question. The rule file is in every seat's
+      // system prompt, so the room can be told what to decide without the CLI
+      // holding the question.
       const topic = single(options.topic)
-      if (!topic) {
-        throw new UsageError('--topic is required: a meeting without a question has nothing to answer')
-      }
 
       const configDir = single(options.config) ?? DEFAULT_CONFIG
       const brief = single(options.brief)

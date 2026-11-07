@@ -107,10 +107,21 @@ async function readRun(runDir: string) {
 }
 
 describe('runRoundtable', () => {
-  it('requires a topic', async () => {
-    const dir = await makeConfig({ table: TABLE, seats: SEATS })
-    await expect(runRoundtable({ configDir: dir, topic: '' })).rejects.toThrow(RoundtableConfigError)
-    await expect(runRoundtable({ configDir: dir, topic: '   ' })).rejects.toThrow(/topic is required/)
+  it('opens its own question when no topic is given', async () => {
+    // The rule file is in every seat's system prompt, so a table can be told what
+    // to decide without the caller carrying the question. An empty topic is the
+    // same as none: it must not reach the prompt as a blank heading.
+    const dir = await makeConfig({
+      table: TABLE,
+      seats: { 'grom.md': SEATS['grom.md'] }
+    })
+    const { callText, calls } = stubText({
+      reply: () => pass
+    })
+    const result = await runRoundtable({ configDir: dir, topic: '', callText })
+    expect(result.status).not.toBe('rejected')
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls[0]?.prompt ?? '').not.toContain('## 议题')
   })
 
   it('writes record.json, record.md and state.json into a directory named by start time', async () => {

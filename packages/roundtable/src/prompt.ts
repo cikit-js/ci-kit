@@ -77,7 +77,8 @@ function renderStatement(statement: Statement): string {
 
 export interface PromptInput {
   /** What this discussion must answer. Required at the API edge. */
-  topic: string
+  /** The question, when the caller set one; the rule file may open it. */
+  topic?: string
   /** Why the meeting was called. */
   brief?: string
   /** Everything the caller put on the table, already numbered by position. */
@@ -188,7 +189,11 @@ export function outputInstruction(fields: Record<string, string>): string {
 export function buildUserPrompt(input: PromptInput): string {
   const blocks: string[] = []
 
-  blocks.push(`## 议题\n\n${input.topic.trim()}`)
+  // A table that opens its own question has no topic block; its rule file is
+  // already in every seat's system prompt and says what to decide.
+  if (input.topic?.trim()) {
+    blocks.push(`## 议题\n\n${input.topic.trim()}`)
+  }
 
   if (input.brief?.trim()) {
     blocks.push(`## 背景\n\n${input.brief.trim()}`)

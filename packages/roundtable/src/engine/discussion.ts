@@ -22,7 +22,8 @@ export interface EngineEvents {
 
 export interface EngineOptions extends CallContext {
   loaded: LoadedRoundtable
-  topic: string
+  /** The question, when the caller set one; the rule file may open it instead. */
+  topic?: string
   brief?: string
   /** Initial material, already normalized to a list and in the caller's order. */
   context: string[]
