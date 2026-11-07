@@ -1,7 +1,7 @@
 {
   "name": "ci-kit-monorepo",
   "type": "module",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "packageManager": "pnpm@12.16.1",
   "description": "Reusable building blocks for CI pipelines: AI calls, GitLab releases, changelogs, version tagging.",
