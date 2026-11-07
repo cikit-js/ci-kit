@@ -148,6 +148,10 @@ async function callSeat(seat: Seat, prompt: string, options: EngineOptions): Pro
       json: wantJson,
       temperature: seat.seat.temperature,
       maxTokens: seat.seat.maxTokens,
+      // How long one seat may spend reading and answering. The table sets it
+      // because a seat's work is longer than a short request; leaving it
+      // undefined keeps the transport default.
+      timeoutMs: options.loaded.table.timeoutMs,
       // Paid, non-idempotent: never resend after an unknown outcome.
       retries: seat.seat.fallback === 'retry'
         ? undefined

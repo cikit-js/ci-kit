@@ -274,4 +274,37 @@ phases:
     const loaded = await loadRoundtable({ configDir: dir })
     expect(loaded.phases[0]!.seats).toEqual(['a-seat', 'b-seat', 'c-seat'])
   })
+
+  it('reads a per-table seat timeout', async () => {
+    const table = `---
+timeoutMs: 180000
+phases:
+  - id: propose
+    seats: [editor]
+---
+`
+    const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR })
+    const loaded = await loadRoundtable({ configDir: dir })
+    expect(loaded.table.timeoutMs).toBe(180_000)
+  })
+
+  it('leaves the seat timeout undefined so the transport default applies', async () => {
+    const dir = await makeConfig({ 'table.md': TABLE, 'editor.md': EDITOR, 'guard.md': GUARD })
+    const loaded = await loadRoundtable({ configDir: dir })
+    expect(loaded.table.timeoutMs).toBeUndefined()
+  })
+
+  it('rejects a seat timeout that cannot bound one call', async () => {
+    for (const bad of ['999', '3600001', '1.5']) {
+      const table = `---
+timeoutMs: ${bad}
+phases:
+  - id: propose
+    seats: [editor]
+---
+`
+      const dir = await makeConfig({ 'table.md': table, 'editor.md': EDITOR })
+      await expect(loadRoundtable({ configDir: dir })).rejects.toBeInstanceOf(RoundtableConfigError)
+    }
+  })
 })

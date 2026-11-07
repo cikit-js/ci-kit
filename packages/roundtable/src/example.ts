@@ -23,6 +23,10 @@ phases:
 
 onVeto: re-propose
 maxAttempts: 3
+# Optional: how long one seat's model call may take. Seat work is slower than a
+# short request, so a reviewing table usually wants more than the transport
+# default. Omit to keep that default.
+# timeoutMs: 180000
 ---
 
 这是一个示例圆桌。改完 frontmatter 就能用，正文可以留空。

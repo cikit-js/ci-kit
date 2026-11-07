@@ -26,6 +26,16 @@ export interface Table {
   onVeto: OnVeto
   maxAttempts: number
   threshold: number
+  /**
+   * How long one seat's model call may take. Undefined keeps the http
+   * package's default.
+   *
+   * A seat reads a whole article and replies with paragraphs, which routinely
+   * needs more than the transport default meant for short requests. The table
+   * owns this because "how long may a seat think" is a property of the review,
+   * not of the provider.
+   */
+  timeoutMs?: number
   phases: Phase[]
   /** Phase ids given the special roles, resolved during validation. */
   special: { propose: string, converge: string }
@@ -45,6 +55,7 @@ const TABLE_KEYS = new Set([
   'onVeto',
   'maxAttempts',
   'threshold',
+  'timeoutMs',
   'phases',
   'special'
 ])
@@ -206,6 +217,14 @@ export function parseTable(document: Document, fallbackTitle: string): Table {
     throw new TableError('table: threshold must be greater than 0 and at most 1')
   }
 
+  // Undefined keeps the transport default; a stated value must be usable as a
+  // real timeout, so reject anything too small to finish a sentence or so
+  // large that a hung request outlives the caller's own patience.
+  const timeoutMs = asNumber(data.timeoutMs, 'timeoutMs')
+  if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 3_600_000)) {
+    throw new TableError('table: timeoutMs must be an integer between 1000 and 3600000')
+  }
+
   const phases = parsePhases(data.phases)
   if (!phases.length) {
     throw new TableError('table: at least one phase is required')
@@ -225,6 +244,7 @@ export function parseTable(document: Document, fallbackTitle: string): Table {
     onVeto,
     maxAttempts,
     threshold,
+    timeoutMs,
     phases,
     special: resolveSpecial(phases, asMapping(data.special, 'special'))
   }
