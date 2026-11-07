@@ -8,6 +8,40 @@ import { resolveImageProvider, resolveTextProvider } from './providers'
 export * from './errors'
 export * from './providers'
 
+/**
+ * The subset of JSON Schema an output contract needs: a typed object with named,
+ * required properties and optional enums.
+ *
+ * Deliberately narrow. A caller describing more than this is usually translating
+ * a prompt into a schema, and a schema that cannot be honoured by a provider is
+ * worse than a plain `json_object` request.
+ */
+export interface JsonSchema {
+  type: 'object'
+  properties: Record<string, JsonProperty>
+  required?: readonly string[]
+  additionalProperties?: boolean
+}
+
+/**
+ * One property of an object schema, or an array element.
+ *
+ * `items` is a node rather than an object schema so an array of strings is
+ * expressible without inventing a wrapper object.
+ */
+export interface JsonProperty {
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'object'
+  description?: string
+  /** Fixed set of allowed values. */
+  enum?: readonly string[]
+  /** Element shape when `type` is `array`. */
+  items?: JsonProperty
+  /** Field shapes when `type` is `object`. */
+  properties?: Record<string, JsonProperty>
+  required?: readonly string[]
+  additionalProperties?: boolean
+}
+
 export interface TextOptions {
   prompt: string
   system?: string
@@ -15,6 +49,19 @@ export interface TextOptions {
   maxTokens?: number
   /** Ask the provider for a JSON object. Unsupported providers throw instead of ignoring it. */
   json?: boolean
+  /**
+   * JSON Schema the reply must satisfy.
+   *
+   * Passing a schema implies `json: true`: the schema is the contract, and a
+   * provider that can only guarantee "some JSON object" is asked for exactly
+   * that. Providers with structured output honour the schema; the rest still
+   * get `json_object`, and the caller validates against the same schema.
+   *
+   * The schema is what replaces hand-written JSON in a prompt: the shape lives in
+   * code, next to the parser that reads it, instead of being described in prose
+   * the model may paraphrase.
+   */
+  schema?: JsonSchema
   temperature?: number
   /**
    * Transport retries. Defaults to the http package value.
@@ -130,16 +177,29 @@ function supportsJsonMode(provider: TextProvider): boolean {
   return provider.protocol === 'openai' || provider.protocol === 'dashscope'
 }
 
+/**
+ * Providers that honour a named JSON schema in `response_format`.
+ *
+ * OpenAI-compatible endpoints and DashScope both accept `json_schema`; anything
+ * else still gets `json_object`, which is weaker but never wrong: the caller
+ * validates the same schema either way.
+ */
+function supportsJsonSchema(provider: TextProvider): boolean {
+  return provider.protocol === 'openai' || provider.protocol === 'dashscope'
+}
+
 export async function text(options: TextOptions): Promise<AiResult<string>> {
   const env = options.env ?? process.env
   const provider = resolveTextProvider(env)
+  // A schema is a stronger way of saying "JSON", so it implies it.
+  const wantJson = options.json === true || options.schema !== undefined
 
-  if (options.json && !supportsJsonMode(provider)) {
+  if (wantJson && !supportsJsonMode(provider)) {
     throw new AiError({
       kind: 'config',
       provider: provider.id,
       model: provider.model,
-      message: `Provider ${provider.id} does not support JSON output; remove json: true or change provider`
+      message: `Provider ${provider.id} does not support JSON output; remove json or schema, or change provider`
     })
   }
 
@@ -164,8 +224,15 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
   if (options.temperature !== undefined) {
     body.temperature = options.temperature
   }
-  if (options.json) {
-    body.response_format = { type: 'json_object' }
+  if (wantJson) {
+    body.response_format = options.schema && supportsJsonSchema(provider)
+      // A named schema is enforced by the provider, so the model is not free to
+      // invent field names; the parser downstream still treats it as untrusted.
+      ? {
+          type: 'json_schema',
+          json_schema: { name: 'reply', strict: true, schema: options.schema }
+        }
+      : { type: 'json_object' }
   }
 
   let data: ChatResponse

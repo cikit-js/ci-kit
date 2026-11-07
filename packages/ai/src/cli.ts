@@ -46,6 +46,7 @@ cli
   .option('--var <k=v>', 'Template variable, repeatable')
   .option('--max-tokens <n>', 'Upper bound for generated tokens')
   .option('--json', 'Ask for a JSON object response')
+  .option('--schema-file <path>', 'JSON Schema file the reply must satisfy; implies --json')
   .option('--temperature <n>', 'Sampling temperature')
   .option('--retries <n>', 'Transport retries; use 0 for paid calls')
   .option('--out <path>', 'Write result to file')
@@ -64,6 +65,9 @@ cli
         system: options.system as string | undefined,
         maxTokens: optionalNumber(options.maxTokens as string | undefined),
         json: options.json === true,
+        schema: options.schemaFile === undefined
+          ? undefined
+          : JSON.parse(readFileSync(options.schemaFile as string, 'utf8')),
         temperature: optionalNumber(options.temperature as string | undefined),
         retries: optionalNumber(options.retries as string | undefined),
         timeoutMs: optionalNumber(options.timeout as string | undefined)
