@@ -1,7 +1,7 @@
 {
   "name": "@ci-kit/gitlab",
   "type": "module",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Minimal GitLab API client for releases, packages and schedules",
   "author": "imba97",
   "license": "MIT",
