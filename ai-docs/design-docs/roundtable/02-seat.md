@@ -15,7 +15,7 @@
 └── host.md
 ```
 
-文件名不参与语义，`id` 才是锚点。文件名可以带排序前缀（`01-editor.md`），但排序行为由 `seat.priority` 决定，不依赖文件名。
+文件名不参与语义，`id` 才是锚点。文件名可以带排序前缀（`01-editor.md`），但那只为方便人翻目录，不影响运行。
 
 ## frontmatter 分组
 
@@ -31,7 +31,7 @@
 | --- | --- | --- |
 | `identity` | 名字、头像、头衔、背景 | 都是「这个人是谁」 |
 | `persona` | 立场、性格、风格、说话方式、价值观、口头禅、禁区 | 都是「这个人怎么想、怎么说」 |
-| `seat` | 可见性、否决、权重、预算、退路、阶段 | 都是「这个人在桌上有多少权力」 |
+| `seat` | 可见性、否决、权重、预算、退路 | 都是「这个人在桌上有多少权力」 |
 
 分组的实际收益：讨论跑偏先查 `persona`，流程乱序先查 `seat`；将来若支持 `extends`，可以只覆盖 `persona` 而保留 `seat`；同一角色换场合只改 `persona`。
 
@@ -82,22 +82,20 @@
 
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
-| `phase` | string \| string[] | 全部阶段 | 参与的阶段 id |
-| `sees` | `all` \| `none` \| `lead-only` \| string[] | `all` | 发言可见范围 |
-| `canPropose` | boolean | `false` | 能否在 `propose` 阶段提议题 |
+| `sees` | `all` \| `none` | `all` | 看得见池内全部发言，或什么都看不见 |
 | `canVeto` | boolean | `false` | 一票否决权 |
-| `lead` | boolean | `false` | 是否为主持（负责推动议程与收口） |
 | `weight` | number | `1` | 表决权重 |
-| `priority` | number | `99` | 同阶段内的发言顺序 |
-| `budget` | number | 不限 | 该席位允许的最大 AI 调用次数 |
+| `maxTokens` | number | `80` | 单次发言的 token 上限，约 55 字 |
 | `fallback` | `skip` \| `retry` \| `abort` | `skip` | 调用失败时的策略 |
-| `output` | `text` \| `json` \| `markdown` | `text` | 产出类型 |
+| `output` | `text` \| `json` | `text` | 产出类型；`json` 才能投出结构化判断 |
+
+席位**不声明自己参加哪场讨论**。谁在场由 `table.md` 之外决定：所有 `enabled: true` 的席位同时参加那一场讨论。
 
 #### 三个最关键的字段
 
-1. **`sees`** — 「讨论」与「串联调用」的分界线。不控制可见性，审核会退化成附和，讨论会变成回响室。默认 `all`（像真圆桌），独立审核席位显式写 `none`。
-2. **`budget` + `fallback`** — 无人值守的双保险。没有它们，一场会可能烧掉不可控的成本，也可能被单个席位拖死。
-3. **`canVeto`** — 让圆桌能表达「有的事必须一票否决」，而不必所有事都投票。任一可否决席位否决即为否决，多人表决用 `weight` 表达，两者不混用。
+1. **`sees`** — 「讨论」与「独立判断」的分界线。默认 `all`（像真圆桌，互相听得见）；独立审核席位显式写 `none`，避免读到别人的意见后附和。
+2. **`maxTokens` + `fallback`** — 发言长度由 `maxTokens` 封顶，避免变成长篇大论；`fallback` 防止单个席位拖死整场会。
+3. **`canVeto`** — 让圆桌能表达「有的事必须一票否决」。任一可否决席位否决即为否决，多人表决用 `weight` 表达，两者不混用。
 
 ## 完整示例
 
@@ -122,11 +120,10 @@ persona:
   avoid: 不做风格评价，只管事实
 
 seat:
-  phase: [review]
   sees: none
   canVeto: true
   weight: 2
-  budget: 4
+  maxTokens: 80
   fallback: skip
   output: json
 ---
