@@ -23,6 +23,7 @@ npx @ci-kit/roundtable run --config .ci-kit/roundtable --topic "这篇能不能�
 | `@ci-kit/core` | Meta package, re-exports everything and ships the `ci-kit` CLI |
 | `@ci-kit/ai` | Text and image generation, multi-provider presets, `ci-kit-ai` CLI |
 | `@ci-kit/changelog` | Git history to grouped release notes, `ci-kit-changelog` CLI |
+| `@ci-kit/github` | GitHub releases and release assets |
 | `@ci-kit/gitlab` | Releases, generic packages, pipeline schedules, pagination |
 | `@ci-kit/env` | Read `.env`, export without breaking JSON values, redact |
 | `@ci-kit/release` | Semver bump, beta/production tag naming, build numbers |

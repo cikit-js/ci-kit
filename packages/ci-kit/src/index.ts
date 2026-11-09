@@ -1,6 +1,7 @@
 export * from '@ci-kit/ai'
 export * from '@ci-kit/changelog'
 export * from '@ci-kit/env'
+export * from '@ci-kit/github'
 export * from '@ci-kit/gitlab'
 export * from '@ci-kit/http'
 export * from '@ci-kit/release'

@@ -226,6 +226,9 @@ importers:
       '@ci-kit/env':
         specifier: workspace:*
         version: link:../env
+      '@ci-kit/github':
+        specifier: workspace:*
+        version: link:../github
       '@ci-kit/gitlab':
         specifier: workspace:*
         version: link:../gitlab
@@ -243,6 +246,12 @@ importers:
         version: 7.1.0
 
   packages/env: {}
+
+  packages/github:
+    dependencies:
+      '@ci-kit/http':
+        specifier: workspace:*
+        version: link:../http
 
   packages/gitlab:
     dependencies:

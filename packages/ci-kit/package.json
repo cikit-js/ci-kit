@@ -37,6 +37,7 @@
     "@ci-kit/ai": "workspace:*",
     "@ci-kit/changelog": "workspace:*",
     "@ci-kit/env": "workspace:*",
+    "@ci-kit/github": "workspace:*",
     "@ci-kit/gitlab": "workspace:*",
     "@ci-kit/http": "workspace:*",
     "@ci-kit/release": "workspace:*",

@@ -1,0 +1,39 @@
+{
+  "name": "@ci-kit/github",
+  "type": "module",
+  "version": "0.5.0",
+  "description": "Minimal GitHub API client for releases and release assets",
+  "author": "imba97",
+  "license": "MIT",
+  "homepage": "https://github.com/cikit-js/ci-kit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cikit-js/ci-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cikit-js/ci-kit/issues"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "unbuild",
+    "typecheck": "tsc --noEmit",
+    "stub": "unbuild --stub"
+  },
+  "dependencies": {
+    "@ci-kit/http": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
