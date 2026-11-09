@@ -1,4 +1,4 @@
-import type { JsonSchema } from '@ci-kit/ai'
+import type { JsonSchema, ToolExecution } from '@ci-kit/ai'
 import type { Seat } from './seat'
 
 /** One line of the pool: a seat's single statement, in the order it landed. */
@@ -33,6 +33,8 @@ export interface Statement {
   durationMs?: number
   model?: string
   usage?: { input: number, output: number }
+  /** Tool calls made while producing this statement. */
+  toolCalls?: ToolExecution[]
   /** One log-safe line when the seat failed. Never the provider payload. */
   error?: string
   artifacts?: ArtifactRef[]

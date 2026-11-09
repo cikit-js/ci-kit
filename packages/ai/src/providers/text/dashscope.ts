@@ -11,5 +11,6 @@ export const dashscopeText: TextProvider = {
   protocol: 'openai',
   baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   model: 'ZHIPU/GLM-5.3-Flash',
-  apiKeyEnv: 'AI_API_KEY'
+  apiKeyEnv: 'AI_API_KEY',
+  supportsTools: true
 }

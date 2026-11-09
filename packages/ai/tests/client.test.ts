@@ -182,6 +182,107 @@ describe('text requests', () => {
     expect(calls[0]!.body.model).toBe('custom-model')
     expect(result.model).toBe('custom-model')
   })
+
+  it('executes provider tool calls and sends the result back before the final answer', async () => {
+    let calls = 0
+    const requests = mockFetch((_request) => {
+      calls++
+      if (calls === 1) {
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-1',
+                    type: 'function',
+                    function: { name: 'lookup', arguments: '{"term":"slow"}' }
+                  }
+                ]
+              },
+              finish_reason: 'tool_calls'
+            }
+          ]
+        })
+      }
+      return chat('final answer')
+    })
+    const seen: unknown[] = []
+    const result = await text({
+      prompt: 'check this',
+      tools: [
+        {
+          name: 'lookup',
+          description: 'Look something up',
+          parameters: {
+            type: 'object',
+            properties: {
+              term: { type: 'string' }
+            },
+            required: ['term']
+          }
+        }
+      ],
+      executeTool: async (call) => {
+        seen.push(call)
+        return {
+          matches: ['one']
+        }
+      },
+      env: ENV
+    })
+    expect(result.value).toBe('final answer')
+    expect(result.toolCalls).toEqual([
+      {
+        id: 'call-1',
+        name: 'lookup',
+        arguments: { term: 'slow' },
+        result: {
+          matches: ['one']
+        },
+        durationMs: expect.any(Number)
+      }
+    ])
+    expect(seen).toEqual([
+      {
+        id: 'call-1',
+        name: 'lookup',
+        arguments: { term: 'slow' }
+      }
+    ])
+    expect(requests[0]!.body.tools).toEqual([
+      {
+        type: 'function',
+        function: {
+          name: 'lookup',
+          description: 'Look something up',
+          parameters: {
+            type: 'object',
+            properties: {
+              term: { type: 'string' }
+            },
+            required: ['term']
+          }
+        }
+      }
+    ])
+    expect(requests[1]!.body.messages).toEqual([
+      { role: 'user', content: 'check this' },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'lookup', arguments: '{"term":"slow"}' }
+          }
+        ]
+      },
+      { role: 'tool', tool_call_id: 'call-1', content: '{"matches":["one"]}' }
+    ])
+  })
 })
 
 describe('image requests', () => {

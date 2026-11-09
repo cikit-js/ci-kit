@@ -10,7 +10,8 @@ export const openaiText: TextProvider = {
   protocol: 'openai',
   baseUrl: 'https://api.openai.com/v1',
   model: 'gpt-4.1-mini',
-  apiKeyEnv: 'AI_API_KEY'
+  apiKeyEnv: 'AI_API_KEY',
+  supportsTools: true
 }
 
 export function createOpenAiCompatibleText(input: {
@@ -19,6 +20,7 @@ export function createOpenAiCompatibleText(input: {
   baseUrl: string
   model: string
   apiKeyEnv?: string
+  supportsTools?: boolean
 }): TextProvider {
   return {
     protocol: 'openai',

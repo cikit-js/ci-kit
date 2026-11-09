@@ -31,7 +31,7 @@
 | --- | --- | --- |
 | `identity` | 名字、头像、头衔、背景 | 都是「这个人是谁」 |
 | `persona` | 立场、性格、风格、说话方式、价值观、口头禅、禁区 | 都是「这个人怎么想、怎么说」 |
-| `seat` | 可见性、否决、权重、预算、退路 | 都是「这个人在桌上有多少权力」 |
+| `seat` | 工具权限、否决、权重、预算、退路 | 都是「这个人在桌上有多少权力」 |
 
 分组的实际收益：讨论跑偏先查 `persona`，流程乱序先查 `seat`；将来若支持 `extends`，可以只覆盖 `persona` 而保留 `seat`；同一角色换场合只改 `persona`。
 
@@ -85,6 +85,8 @@
 | `canVeto` | boolean | `false` | 一票否决权 |
 | `weight` | number | `1` | 表决权重 |
 | `maxTokens` | number | `600` | 单次调用的正文预算；思考内容不计入这个字段的语义 |
+| `tools` | string[] | `[]` | 允许调用的工具名称。handler 由调用方注册，库不实现业务工具 |
+| `maxToolCalls` | number | `4` | 一次席位发言最多调用多少次工具 |
 | `fallback` | `skip` \| `retry` \| `abort` | `skip` | 调用失败时的策略 |
 | `output` | `text` \| `json` | `text` | 产出类型；`json` 才能投出结构化判断 |
 
@@ -132,6 +134,8 @@ seat:
   canVeto: true
   weight: 2
   maxTokens: 1000
+  tools: [topic-history.check]
+  maxToolCalls: 2
   fallback: skip
   output: json
 ---
@@ -146,6 +150,14 @@ seat:
 ## 输出
 每条只写三样：哪句话、缺什么、怎么补。
 ```
+
+## 工具权限
+
+`tools` 只声明席位允许请求哪些名称。工具的参数 schema 和执行 handler 由调用方通过 `runRoundtable({ tools })` 注册，圆桌库不认识 RSS、网页、数据库或业务规则。
+
+工具调用发生在一席位的一次发言内部。模型请求工具后，库校验名称和参数，执行 handler，把结果放回模型上下文，直到模型返回最终 speech 或结构化回复。工具调用不会单独进入共享发言池，但会随该条 statement 记录。
+
+工具应保持只读、可重复和有界。调用方负责限制网络、耗时、返回长度和敏感信息。工具结果按外部资料处理，不能改变会议规则。
 
 ## 解析规则
 

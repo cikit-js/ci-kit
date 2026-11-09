@@ -11,6 +11,8 @@ export interface TextProvider {
   model: string
   /** Environment variable holding the key; keys are never passed as flags */
   apiKeyEnv: string
+  /** Whether this endpoint accepts OpenAI-compatible function tools. */
+  supportsTools?: boolean
 }
 
 export interface ImageProvider {

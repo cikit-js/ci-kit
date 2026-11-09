@@ -54,6 +54,8 @@ describe('parseSeat', () => {
       canVeto: true,
       weight: 2,
       maxTokens: 80,
+      tools: [],
+      maxToolCalls: 4,
       fallback: 'skip',
       output: 'json'
     })
@@ -90,6 +92,18 @@ role: 读者
 enabled: false
 ---`)
     expect(seat.enabled).toBe(false)
+  })
+
+  it('reads the tools allowlist and per-turn tool budget', () => {
+    const seat = parse(`---
+id: cairne
+role: 行业观察
+seat:
+  tools: [topic-history.check, industry-news.search]
+  maxToolCalls: 3
+---`)
+    expect(seat.seat.tools).toEqual(['topic-history.check', 'industry-news.search'])
+    expect(seat.seat.maxToolCalls).toBe(3)
   })
 
   it('rejects an unknown group instead of ignoring it', () => {

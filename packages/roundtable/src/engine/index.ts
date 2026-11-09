@@ -1,5 +1,5 @@
 export { callSeat, describeError, isAbortError } from './call'
-export type { CallContext, CallOutcome, TextCaller } from './call'
+export type { CallContext, CallOutcome, RoundtableTool, TextCaller, ToolExecutionContext } from './call'
 /**
  * Discussion runtime.
  *

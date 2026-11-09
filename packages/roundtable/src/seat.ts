@@ -29,6 +29,10 @@ export interface SeatPowers {
   weight: number
   /** Upper bound for one statement, in tokens. */
   maxTokens: number
+  /** Tool names this seat may call. The handlers come from the caller. */
+  tools: string[]
+  /** Maximum tool calls during one seat turn. */
+  maxToolCalls: number
   fallback: Fallback
   output: SeatOutput
 }
@@ -75,6 +79,8 @@ export const SEAT_DEFAULTS = {
   canVeto: false,
   weight: 1,
   maxTokens: 1000,
+  tools: [] as string[],
+  maxToolCalls: 4,
   fallback: 'skip',
   output: 'text'
 } as const
@@ -107,6 +113,8 @@ const SEAT_KEYS = new Set([
   'canVeto',
   'weight',
   'maxTokens',
+  'tools',
+  'maxToolCalls',
   'fallback',
   'output'
 ])
@@ -354,6 +362,10 @@ export function parseSeat(document: Document, source: string): Seat {
   if (!Number.isInteger(maxTokens) || maxTokens < 1) {
     throw new SeatError(label, 'seat.maxTokens must be a positive integer')
   }
+  const maxToolCalls = asNumber(seat.maxToolCalls, label, 'seat.maxToolCalls') ?? SEAT_DEFAULTS.maxToolCalls
+  if (!Number.isInteger(maxToolCalls) || maxToolCalls < 0) {
+    throw new SeatError(label, 'seat.maxToolCalls must be a non-negative integer')
+  }
 
   return {
     id,
@@ -381,6 +393,8 @@ export function parseSeat(document: Document, source: string): Seat {
       canVeto: asBoolean(seat.canVeto, label, 'seat.canVeto', SEAT_DEFAULTS.canVeto),
       weight,
       maxTokens,
+      tools: asStringList(seat.tools, label, 'seat.tools'),
+      maxToolCalls,
       fallback: parseFallback(seat.fallback, label),
       output: parseOutput(seat.output, label)
     },

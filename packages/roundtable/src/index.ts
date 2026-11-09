@@ -10,9 +10,10 @@ import { buildRecord, isoLocal, makeRunId, RECORD_SCHEMA, renderRecordMarkdown, 
 import { judgeMeeting, readVerdict, vetoReason } from './verdict'
 
 export { checkRoundtable, defaultOutDir, loadRoundtable, RoundtableConfigError } from './config'
+
 export type { LoadedRoundtable } from './config'
 export { ARTIFACT_THRESHOLD, discuss, estimateTokens, finalVotes, trimPool } from './engine'
-export type { DiscussionResult, EngineOptions, RoundtableStatus, TextCaller, Usage } from './engine'
+export type { DiscussionResult, EngineOptions, RoundtableStatus, RoundtableTool, TextCaller, ToolExecutionContext, Usage } from './engine'
 export { buildUserPrompt, FINISHED_INSTRUCTION, visibleStatements } from './prompt'
 export type { ArtifactRef, Statement, StatementStatus } from './prompt'
 export { RECORD_SCHEMA as ROUNDTABLE_SCHEMA } from './record'
@@ -23,6 +24,7 @@ export { TABLE_DEFAULTS } from './table'
 export type { OnVeto, Table } from './table'
 export { judgeMeeting, readVerdict } from './verdict'
 export type { Judgement, SeatVerdict, Vote } from './verdict'
+export type { JsonProperty, JsonSchema, ToolCall, ToolExecution, ToolExecutor, ToolSpec } from '@ci-kit/ai'
 
 export interface RoundtableOptions {
   /** Directory holding `table.md` and `seats/`. */
@@ -36,6 +38,8 @@ export interface RoundtableOptions {
   /** Where run directories are written. Defaults to `<cwd>/roundtable-out`. */
   outDir?: string
   env?: NodeJS.ProcessEnv
+  /** Project-owned tools keyed by name. Seats opt in through seat.tools. */
+  tools?: Record<string, import('./engine').RoundtableTool>
   /** Emit one line per landed statement; the CLI sends these to stderr. */
   onProgress?: (line: string) => void
   /** Defaults to `@ci-kit/ai`'s text(); tests pass a stub. */
@@ -257,6 +261,7 @@ async function runLoop(context: RunnerContext, resumeFrom?: { pool: Statement[],
         startedAt: attemptStarted,
         attempt: attemptNumber,
         callText: options.callText,
+        tools: options.tools,
         now: context.now,
         writeArtifact: context.writeArtifact,
         persist: context.persist,
@@ -370,6 +375,13 @@ export async function runRoundtable(options: RoundtableOptions): Promise<Roundta
   const topic = readTopic(options.topic)
   const now = options.now ?? (() => Date.now())
   const loaded = await loadRoundtable({ configDir: options.configDir })
+  for (const seat of loaded.seats.filter(item => item.enabled)) {
+    for (const name of seat.seat.tools) {
+      if (!options.tools?.[name]) {
+        throw new RoundtableConfigError(`Seat ${seat.id} requests tool "${name}" but no handler was registered`)
+      }
+    }
+  }
   const context = toContextList(options.context)
   const outDir = resolve(options.outDir ?? defaultOutDir())
   const runId = makeRunId()
@@ -437,6 +449,13 @@ export async function resumeRoundtable(options: ResumeOptions): Promise<Roundtab
   const runDir = resolve(options.runDir)
   const now = options.now ?? (() => Date.now())
   const loaded = await loadRoundtable({ configDir: options.configDir })
+  for (const seat of loaded.seats.filter(item => item.enabled)) {
+    for (const name of seat.seat.tools) {
+      if (!options.tools?.[name]) {
+        throw new RoundtableConfigError(`Seat ${seat.id} requests tool "${name}" but no handler was registered`)
+      }
+    }
+  }
   const state = await readState(runDir)
   if (!state) {
     throw new RoundtableConfigError(`No resumable state.json in ${runDir}`)

@@ -29,6 +29,26 @@ finalize  写会议记录，返回结构化结果
 
 **池是共享的、只追加的。** 所有席位看到同一份内容，**包括自己说过的话**。
 
+## 席位工具
+
+席位可以在 `seat.tools` 中声明允许使用的工具名称。调用方通过 `runRoundtable({ tools })` 提供对应的 schema 和 handler。
+
+```ts
+await runRoundtable({
+  configDir,
+  tools: {
+    'topic-history.check': {
+      name: 'topic-history.check',
+      description: '检查历史主题是否重复',
+      parameters: schema,
+      execute: async (input, context) => lookupHistory(input, context)
+    }
+  }
+})
+```
+
+一次席位调用可以经历多次模型请求和工具返回，直到模型给出最终发言。工具调用受 `seat.maxToolCalls` 限制，工具结果不单独进入发言池，调用记录挂在对应 statement 上。CLI 不能凭配置自行发现业务 handler，项目需要使用 API 注入工具或提供自己的宿主进程。
+
 ## 等待机制
 
 这是圆桌最重要的机制，决定「讨论」是否成立。

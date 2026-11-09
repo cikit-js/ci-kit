@@ -300,7 +300,8 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
         now: options.now,
         reasoningEffort: effort,
         tableBody: loaded.table.body,
-        outputFields: loaded.table.outputFields
+        outputFields: loaded.table.outputFields,
+        tools: options.tools
       })
       if (!outcome.ok && seat.seat.fallback === 'retry' && outcome.retryable && now() < deadline) {
         await sleep(RETRY_BACKOFF_MS)
@@ -311,7 +312,8 @@ export async function discuss(options: EngineOptions): Promise<DiscussionResult>
             now: options.now,
             reasoningEffort: effort,
             tableBody: loaded.table.body,
-            outputFields: loaded.table.outputFields
+            outputFields: loaded.table.outputFields,
+            tools: options.tools
           })
         }
       }
@@ -458,7 +460,8 @@ function statementFromOutcome(seat: Seat, outcome: Parameters<typeof callSeat> e
       error: outcome.error,
       durationMs: outcome.durationMs,
       model: outcome.model,
-      usage: outcome.usage
+      usage: outcome.usage,
+      toolCalls: outcome.toolCalls
     })
   }
 
@@ -483,7 +486,8 @@ function statementFromOutcome(seat: Seat, outcome: Parameters<typeof callSeat> e
     speech: spoken,
     durationMs: outcome.durationMs,
     model: outcome.model,
-    usage: outcome.usage
+    usage: outcome.usage,
+    toolCalls: outcome.toolCalls
   }
   if (seat.seat.output === 'json') {
     if (parsed.verdict !== undefined) {
