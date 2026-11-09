@@ -1,6 +1,9 @@
 minimumReleaseAgeExcludePrune: true
 minimumReleaseAgeExclude:
-  - '@initx-plugin/env@0.4.1'
+  - '@initx-plugin/env'
+  - '@initx-plugin/core'
+  - '@initx-plugin/utils'
+  - initx
 
 trustPolicy: no-downgrade
 shellEmulator: true
