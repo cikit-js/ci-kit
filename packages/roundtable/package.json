@@ -1,7 +1,7 @@
 {
   "name": "@ci-kit/roundtable",
   "type": "module",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "One timed discussion among AI seats that share a pool of statements, then a program-made verdict",
   "author": "imba97",
   "license": "MIT",
