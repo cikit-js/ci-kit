@@ -183,6 +183,17 @@ describe('text requests', () => {
     expect(result.model).toBe('custom-model')
   })
 
+  it('sends MiniMax requests through its compatible endpoint', async () => {
+    const calls = mockFetch(() => chat('ok'))
+    const result = await text({
+      prompt: 'hi',
+      env: { ...ENV, AI_TEXT_PROVIDER: 'minimax' }
+    })
+    expect(calls[0]!.url).toBe('https://api.minimax.chat/v1/chat/completions')
+    expect(calls[0]!.body.model).toBe('MiniMax-Text-01')
+    expect(result.provider).toBe('minimax')
+  })
+
   it('executes provider tool calls and sends the result back before the final answer', async () => {
     let calls = 0
     const requests = mockFetch((_request) => {

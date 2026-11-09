@@ -11,6 +11,15 @@ describe('text providers', () => {
     expect(resolveTextProvider({ AI_TEXT_PROVIDER: 'openai' }).id).toBe('openai')
   })
 
+  it('resolves the MiniMax compatible provider', () => {
+    expect(resolveTextProvider({ AI_TEXT_PROVIDER: 'minimax' })).toMatchObject({
+      id: 'minimax',
+      protocol: 'openai',
+      baseUrl: 'https://api.minimax.chat/v1',
+      model: 'MiniMax-Text-01'
+    })
+  })
+
   it('rejects unknown ids with the available list', () => {
     expect(() => resolveTextProvider({ AI_TEXT_PROVIDER: 'nope' })).toThrow(/Available: .*dashscope/)
   })

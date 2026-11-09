@@ -55,6 +55,8 @@ src/providers/
 | `AI_IMAGE_MODEL` | provider default | overrides the image model |
 | `AI_IMAGE_SIZE` | provider default | default image size when a call omits `size` |
 
+The text registry also includes `minimax`, using MiniMax's OpenAI-compatible ChatCompletion v2 endpoint with `MiniMax-Text-01` as its default model.
+
 Adding a provider is one file plus one line in the matching `index.ts`; the CLI and the
 calling project do not change. Public sizes are always `WxH`, and each provider declares
 its own `sizeSeparator` when the vendor wants something else.
