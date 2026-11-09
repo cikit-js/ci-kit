@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { collectReleaseHistory, renderReleaseContext } from '../src/index'
+import { collectReleaseHistory, renderReleaseContext, resolvePreviousTag } from '../src/index'
 
 const directories: string[] = []
 
@@ -74,5 +74,11 @@ describe('collectReleaseHistory', () => {
     expect(rendered).toContain('The body explains the change.')
     expect(rendered).toContain('- M README.md')
     expect(rendered).toContain('- A src.ts')
+  })
+
+  it('finds the previous reachable tag by pattern', async () => {
+    const dir = await repository()
+    expect(resolvePreviousTag({ cwd: dir, to: 'v0.2.0' })).toBe('v0.1.0')
+    expect(resolvePreviousTag({ cwd: dir, to: 'v0.2.0', pattern: 'release-*' })).toBeNull()
   })
 })

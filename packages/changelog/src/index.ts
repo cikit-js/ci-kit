@@ -30,6 +30,12 @@ export interface ReleaseHistoryOptions {
   includeMerges?: boolean
 }
 
+export interface PreviousTagOptions {
+  cwd?: string
+  to?: string
+  pattern?: string
+}
+
 export interface ReleaseHistory {
   from?: string
   to: string
@@ -107,6 +113,26 @@ function git(cwd: string, args: string[]): string {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024
   })
+}
+
+function tagMatches(tag: string, pattern: string): boolean {
+  const source = `^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`
+  return new RegExp(source).test(tag)
+}
+
+/** Find the newest reachable tag matching a release pattern before `to`. */
+export function resolvePreviousTag(options: PreviousTagOptions = {}): string | null {
+  const { cwd = process.cwd(), to = 'HEAD', pattern = 'v*' } = options
+  const tags = git(cwd, [
+    'tag',
+    '--merged',
+    to,
+    '--sort=-creatordate'
+  ])
+    .split(/\r?\n/)
+    .map(tag => tag.trim())
+    .filter(Boolean)
+  return tags.find(tag => tag !== to && tagMatches(tag, pattern)) ?? null
 }
 
 function parseReleaseLog(output: string): Array<Omit<ReleaseCommit, 'files'>> {
