@@ -25,6 +25,8 @@ interface RoundtableResult {
       role: string
       status: string
       content: string
+      finished?: boolean
+      structured?: { finished?: boolean }
     }>
   }
 }
@@ -132,9 +134,26 @@ function renderGeneratedSection(input: {
 }
 
 function renderConversation(record: RoundtableResult['record']): string {
+  const isSpeechEnvelope = (content: string): boolean => {
+    if (!/^\s*\{[\s\S]*\}\s*$/.test(content)) {
+      return false
+    }
+    try {
+      const value: unknown = JSON.parse(content)
+      return value !== null && typeof value === 'object' && !Array.isArray(value) && 'speech' in value
+    }
+    catch {
+      return false
+    }
+  }
   const lines = record.statements
     .filter(statement => statement.status === 'completed' && statement.content.trim())
-    .map(statement => `- ${statement.name} · ${statement.role}：${statement.content.trim()} ✔`)
+    .filter(statement => !isSpeechEnvelope(statement.content))
+    .map((statement) => {
+      const content = statement.content.replace(/\r?\n+/g, ' ').trim()
+      const finished = statement.finished === true || statement.structured?.finished === true
+      return `- ${statement.name} · ${statement.role}：${content}${finished ? ' ✔' : ''}`
+    })
   return lines.join('\n\n')
 }
 
