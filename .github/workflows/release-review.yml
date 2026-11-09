@@ -35,13 +35,10 @@ jobs:
       - name: install
         run: pnpm install --frozen-lockfile
 
-      - name: install initx
-        run: npm install --global initx@latest
-
       - name: pull env store
         env:
           INITX_ENV_TOKEN: ${{ secrets.INITX_ENV_TOKEN }}
-        run: ix env pull ci-kit-roundtable --config initx-env.config.ts --to .env
+        run: pnpm exec ix env pull ci-kit-roundtable --config initx-env.config.ts --to .env
 
       - name: build packages
         run: pnpm -r build

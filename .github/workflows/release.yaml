@@ -46,8 +46,8 @@ jobs:
       # 先跑测试会报 Failed to resolve entry for package。
       - name: verify
         run: |
-          pnpm -r run typecheck
           pnpm -r run build
+          pnpm -r run typecheck
           pnpm test
 
       # 必须用 pnpm publish，不能用 npm publish：

@@ -187,6 +187,9 @@ importers:
       esno:
         specifier: 4.8.0
         version: 4.8.0
+      initx:
+        specifier: ^0.4.3
+        version: 0.4.3(@types/node@26.6.6)
       nano-staged:
         specifier: ^1.0.2
         version: 1.0.2
@@ -2264,6 +2267,10 @@ packages:
   indent-string@5.0.0:
     resolution: {integrity: sha512-m6FAo/spmsW2Ab2fU35JTYwtOKa2yAwXSwgjSv1TJzh4Mh7mC3lzAOVLBprb72XsTrgkEIsl7YrFNAiDiRhIGg==}
     engines: {node: '>=12'}
+
+  initx@0.4.3:
+    resolution: {integrity: sha512-UDDOJY9qpsWx2nRdYQxForV5swE0R6bqejFTDIsSyAmlLqaYrcVa24yT6afEgNK9ANU1vtpO3EjQjsydzNqT9A==}
+    hasBin: true
 
   is-builtin-module@5.0.0:
     resolution: {integrity: sha512-f4RqJKBUe5rQkJ2eJEJBXSticB3hGbN9j0yxxMQFqIW89Jp9WYFtzfTcRlstDKVUTRzSOTLKRfO9vIztenwtxA==}
@@ -5082,6 +5089,15 @@ snapshots:
   imurmurhash@0.1.4: {}
 
   indent-string@5.0.0: {}
+
+  initx@0.4.3(@types/node@26.6.6):
+    dependencies:
+      '@initx-plugin/core': 0.4.3(@types/node@26.6.6)
+      '@initx-plugin/utils': 0.4.3(@types/node@26.6.6)
+      cac: 7.1.0
+    transitivePeerDependencies:
+      - '@types/node'
+      - supports-color
 
   is-builtin-module@5.0.0:
     dependencies:

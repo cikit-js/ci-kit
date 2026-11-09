@@ -37,6 +37,7 @@
     "defu": "^6.1.7",
     "eslint": "^10.14.0",
     "esno": "4.8.0",
+    "initx": "^0.4.3",
     "nano-staged": "^1.0.2",
     "oxc-parser": "^0.156.0",
     "simple-git-hooks": "^2.14.0",
