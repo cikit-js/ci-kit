@@ -8,6 +8,35 @@ export interface Commit {
   body: string
 }
 
+export interface ReleaseFileChange {
+  status: string
+  path: string
+  previousPath?: string
+}
+
+export interface ReleaseCommit extends Commit {
+  author: string
+  email: string
+  date: string
+  parents: string[]
+  merge: boolean
+  files: ReleaseFileChange[]
+}
+
+export interface ReleaseHistoryOptions {
+  cwd?: string
+  from?: string
+  to?: string
+  includeMerges?: boolean
+}
+
+export interface ReleaseHistory {
+  from?: string
+  to: string
+  commits: ReleaseCommit[]
+  files: ReleaseFileChange[]
+}
+
 export interface ChangelogSection {
   type: string
   title: string
@@ -70,6 +99,161 @@ export function collectCommits(options: ChangelogOptions = {}): Commit[] {
         body: body.trim()
       }
     })
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024
+  })
+}
+
+function parseReleaseLog(output: string): Array<Omit<ReleaseCommit, 'files'>> {
+  return output
+    .replaceAll('\x1E\0', '\x1E')
+    .split('\x1E')
+    .map(chunk => chunk.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      const [hash = '', author = '', email = '', date = '', parentText = '', subject = '', body = ''] = chunk.split('\x1F')
+      const parents = parentText.trim()
+        ? parentText.trim().split(/\s+/)
+        : []
+      return {
+        hash: hash.trim(),
+        subject: subject.trim(),
+        body: body.trim(),
+        author: author.trim(),
+        email: email.trim(),
+        date: date.trim(),
+        parents,
+        merge: parents.length > 1
+      }
+    })
+}
+
+function commitFiles(cwd: string, hash: string): ReleaseFileChange[] {
+  const output = git(cwd, [
+    'diff-tree',
+    '--root',
+    '--no-commit-id',
+    '-m',
+    '-r',
+    '--name-status',
+    '--find-renames',
+    '-z',
+    hash
+  ])
+  const tokens = output.split('\0').filter(Boolean)
+  const files: ReleaseFileChange[] = []
+  const seen = new Set<string>()
+  for (let index = 0; index < tokens.length;) {
+    const status = tokens[index++] ?? ''
+    const rename = /^[RC]\d*$/.test(status)
+    const previousPath = rename
+      ? tokens[index++]
+      : undefined
+    const path = tokens[index++]
+    if (!path) {
+      continue
+    }
+    const key = `${status}\0${previousPath ?? ''}\0${path}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    files.push({
+      status: status.slice(0, 1),
+      path,
+      ...(previousPath
+        ? { previousPath }
+        : {})
+    })
+  }
+  return files
+}
+
+/** Collect every commit and its changed paths for a release range. */
+export function collectReleaseCommits(options: ReleaseHistoryOptions = {}): ReleaseCommit[] {
+  const { cwd = process.cwd(), from, to = 'HEAD', includeMerges = true } = options
+  const range = from
+    ? `${from}..${to}`
+    : to
+  const args = [
+    'log',
+    '-z',
+    ...(includeMerges
+      ? []
+      : ['--no-merges']),
+    range,
+    '--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%P%x1f%s%x1f%b%x1e'
+  ]
+  return parseReleaseLog(git(cwd, args)).map(commit => ({
+    ...commit,
+    files: commitFiles(cwd, commit.hash)
+  }))
+}
+
+/** Collect release material without dropping merge commits or file paths. */
+export function collectReleaseHistory(options: ReleaseHistoryOptions = {}): ReleaseHistory {
+  const to = options.to ?? 'HEAD'
+  const commits = collectReleaseCommits(options)
+  const files: ReleaseFileChange[] = []
+  const seen = new Set<string>()
+  for (const commit of commits) {
+    for (const file of commit.files) {
+      const key = `${file.status}\0${file.previousPath ?? ''}\0${file.path}`
+      if (seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+      files.push(file)
+    }
+  }
+  return {
+    ...(options.from
+      ? { from: options.from }
+      : {}),
+    to,
+    commits,
+    files
+  }
+}
+
+/** Render the complete commit and file material for a roundtable context. */
+export function renderReleaseContext(history: ReleaseHistory): string {
+  const lines = [
+    '## 版本范围',
+    '',
+    `${history.from ?? '仓库初始提交'} → ${history.to}`,
+    '',
+    `共 ${history.commits.length} 个 commit，${history.files.length} 个不同文件变更。`,
+    '',
+    '## Commit 列表',
+    ''
+  ]
+  for (const commit of history.commits) {
+    lines.push(`### ${commit.hash.slice(0, 12)} · ${commit.subject}`)
+    lines.push('')
+    lines.push(`作者：${commit.author} · 时间：${commit.date}`)
+    if (commit.body) {
+      lines.push('', commit.body)
+    }
+    lines.push('', '文件：')
+    if (!commit.files.length) {
+      lines.push('- 无法从该 commit 读取文件列表')
+    }
+    else {
+      for (const file of commit.files) {
+        lines.push(`- ${file.status} ${file.previousPath
+          ? `${file.previousPath} → `
+          : ''}${file.path}`)
+      }
+    }
+    lines.push('')
+  }
+  return lines.join('\n').trimEnd()
 }
 
 interface ParsedSubject {
