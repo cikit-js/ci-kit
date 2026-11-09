@@ -1,7 +1,7 @@
 {
   "name": "@ci-kit/core",
   "type": "module",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Meta package that re-exports every ci-kit module",
   "author": "imba97",
   "license": "MIT",
