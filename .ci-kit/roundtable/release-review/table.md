@@ -4,7 +4,7 @@ durationMs: 180000
 maxPoolTokens: 12000
 threshold: 0.5
 onVeto: re-propose
-maxAttempts: 1
+maxAttempts: 2
 reasoningEffort: low
 ---
 

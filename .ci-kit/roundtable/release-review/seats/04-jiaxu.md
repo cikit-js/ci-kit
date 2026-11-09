@@ -19,8 +19,8 @@ persona:
 seat:
   canVeto: false
   weight: 1
-  maxTokens: 320
-  fallback: skip
+  maxTokens: 512
+  fallback: retry
   output: json
 ---
 

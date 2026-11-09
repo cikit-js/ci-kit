@@ -134,7 +134,7 @@ function renderGeneratedSection(input: {
 function renderConversation(record: RoundtableResult['record']): string {
   const lines = record.statements
     .filter(statement => statement.status === 'completed' && statement.content.trim())
-    .map(statement => `**${statement.name} · ${statement.role}**\n\n${statement.content.trim()}`)
+    .map(statement => `- ${statement.name} · ${statement.role}：${statement.content.trim()} ✔`)
   return lines.join('\n\n')
 }
 
