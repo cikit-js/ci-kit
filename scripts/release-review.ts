@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -19,7 +19,14 @@ interface ReleaseHistorySummary {
 interface RoundtableResult {
   status: string
   recordPath: string
-  record: unknown
+  record: {
+    statements: Array<{
+      name: string
+      role: string
+      status: string
+      content: string
+    }>
+  }
 }
 
 interface GitHubRelease {
@@ -101,9 +108,7 @@ function renderGeneratedSection(input: {
 }): string {
   const { tag, previousTag, history, transcript, context, failure } = input
   const range = `${previousTag ?? '仓库初始提交'} → ${tag}`
-  const record = transcript
-    ? transcript.replace(/^# [^\n]*\n?/, '').trim()
-    : `本次圆桌没有形成记录。\n\n原因：${failure}`
+  const record = transcript || `本次圆桌没有形成记录。\n\n原因：${failure}`
   const lines = [
     `${GENERATED_START}${tag} -->`,
     `## 谋士会 · ${tag}`,
@@ -124,6 +129,13 @@ function renderGeneratedSection(input: {
     GENERATED_END
   ]
   return lines.join('\n')
+}
+
+function renderConversation(record: RoundtableResult['record']): string {
+  const lines = record.statements
+    .filter(statement => statement.status === 'completed' && statement.content.trim())
+    .map(statement => `**${statement.name} · ${statement.role}**\n\n${statement.content.trim()}`)
+  return lines.join('\n\n')
 }
 
 async function loadPackages(): Promise<Packages> {
@@ -192,7 +204,7 @@ async function main(): Promise<void> {
       env: process.env,
       onProgress: (line: string) => console.error(line)
     })
-    transcript = await readFile(result.recordPath.replace(/record\.json$/, 'record.md'), 'utf8')
+    transcript = renderConversation(result.record)
   }
   catch (error) {
     failure = errorMessage(error)
