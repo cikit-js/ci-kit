@@ -25,6 +25,7 @@ interface RoundtableResult {
       role: string
       status: string
       content: string
+      error?: string
       finished?: boolean
       structured?: { finished?: boolean }
     }>
@@ -105,10 +106,9 @@ function renderGeneratedSection(input: {
   previousTag: string | null
   history: ReleaseHistorySummary
   transcript: string
-  context: string
   failure: string
 }): string {
-  const { tag, previousTag, history, transcript, context, failure } = input
+  const { tag, previousTag, history, transcript, failure } = input
   const range = `${previousTag ?? '仓库初始提交'} → ${tag}`
   const record = transcript || `本次圆桌没有形成记录。\n\n原因：${failure}`
   const lines = [
@@ -121,39 +121,46 @@ function renderGeneratedSection(input: {
     '',
     record,
     '',
-    '<details>',
-    '<summary>本次会议材料（commit 与文件路径）</summary>',
-    '',
-    context.trim(),
-    '',
-    '</details>',
-    '',
     GENERATED_END
   ]
   return lines.join('\n')
 }
 
 function renderConversation(record: RoundtableResult['record']): string {
-  const isSpeechEnvelope = (content: string): boolean => {
+  const readMessage = (content: string): { message: string, finished?: boolean } => {
     if (!/^\s*\{[\s\S]*\}\s*$/.test(content)) {
-      return false
+      return { message: content }
     }
     try {
-      const value: unknown = JSON.parse(content)
-      return value !== null && typeof value === 'object' && !Array.isArray(value) && 'speech' in value
+      const value = JSON.parse(content) as { message?: unknown, speech?: unknown, finished?: unknown }
+      let message = ''
+      if (typeof value.message === 'string') {
+        message = value.message
+      }
+      else if (typeof value.speech === 'string') {
+        message = value.speech
+      }
+      return { message, finished: value.finished === true }
     }
     catch {
-      return false
+      return { message: content }
     }
   }
-  const lines = record.statements
-    .filter(statement => statement.status === 'completed' && statement.content.trim())
-    .filter(statement => !isSpeechEnvelope(statement.content))
-    .map((statement) => {
-      const content = statement.content.replace(/\r?\n+/g, ' ').trim()
-      const finished = statement.finished === true || statement.structured?.finished === true
-      return `- ${statement.name} · ${statement.role}：${content}${finished ? ' ✔' : ''}`
-    })
+  const lines = record.statements.flatMap((statement) => {
+    if (statement.status === 'failed') {
+      return [`- ${statement.name} · ${statement.role}：发言失败（${statement.error || '未知错误'}）`]
+    }
+    if (statement.status !== 'completed' || !statement.content.trim()) {
+      return []
+    }
+    const parsed = readMessage(statement.content)
+    const content = parsed.message.replace(/\r?\n+/g, ' ').trim()
+    if (!content) {
+      return []
+    }
+    const finished = parsed.finished || statement.finished === true || statement.structured?.finished === true
+    return [`- ${statement.name} · ${statement.role}：${content}${finished ? ' ✔' : ''}`]
+  })
   return lines.join('\n\n')
 }
 
@@ -236,7 +243,6 @@ async function main(): Promise<void> {
     previousTag,
     history,
     transcript,
-    context,
     failure: failure || (result
       ? `圆桌状态：${result.status}`
       : '未知错误')
