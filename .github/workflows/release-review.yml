@@ -1,0 +1,60 @@
+name: release review
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要讨论的 tag
+        required: true
+        type: string
+
+concurrency:
+  group: release-review-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  roundtable:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: pull env store
+        env:
+          INITX_ENV_TOKEN: ${{ secrets.INITX_ENV_TOKEN }}
+        run: esno scripts/ci-env-pull.ts
+
+      - name: build packages
+        run: pnpm -r build
+
+      - name: hold 谋士会
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: pnpm release:review
+
+      - name: upload roundtable artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-review-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            out/release-review-*
+            roundtable-out/**

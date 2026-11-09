@@ -8,4 +8,5 @@ dist
 .eslintcache
 coverage
 *.tgz
+.env
 roundtable-out/

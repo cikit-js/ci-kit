@@ -85,6 +85,20 @@ provider that cannot honour it instead of silently ignoring the request.
 `image()` requires exactly one image in the response, surfaces item level errors by code
 only, and rejects payloads that are neither PNG nor JPEG.
 
+## GitHub Release 谋士会
+
+推送 `v*` tag 会触发 `.github/workflows/release-review.yml`：工作流读取当前 tag 与上一个 tag 之间的完整 commit 和文件路径，把材料交给六位三国谋士进行短句圆桌，并把记录更新到 GitHub Release。工作流只需要一个 GitHub Actions Secret：`INITX_ENV_TOKEN`。
+
+env 仓库使用 `imba97/env` 的 `main` 分支，store 为 `ci-kit-roundtable`。该 store 需要维护以下变量：
+
+| 变量 | 用途 |
+| --- | --- |
+| `AI_TEXT_PROVIDER` | 固定为 `minimax` |
+| `AI_API_KEY` | MiniMax API Key |
+| `AI_TEXT_MODEL` | 可选，默认 `MiniMax-Text-01` |
+
+仓库根目录的 `.initx-env.json` 只保存 env 仓库定位信息；`.env` 由工作流临时拉取并被忽略，不提交密钥。
+
 ### Errors
 
 Failures are `AiError` with a stable `kind` (`auth`, `quota`, `request`, `network`,

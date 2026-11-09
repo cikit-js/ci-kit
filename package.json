@@ -26,7 +26,8 @@
     "tu": "vitest -u",
     "lint": "eslint --cache",
     "lint:fix": "eslint --cache --fix",
-    "release": "bumpp -r"
+    "release": "bumpp -r",
+    "release:review": "esno scripts/release-review.ts"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^10.0.0",
@@ -34,6 +35,7 @@
     "bumpp": "^12.3.0",
     "defu": "^6.1.7",
     "eslint": "^10.14.0",
+    "esno": "4.8.0",
     "nano-staged": "^1.0.2",
     "oxc-parser": "^0.156.0",
     "simple-git-hooks": "^2.14.0",
