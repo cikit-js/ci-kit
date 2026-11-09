@@ -190,7 +190,7 @@ describe('text requests', () => {
       env: { ...ENV, AI_TEXT_PROVIDER: 'minimax' }
     })
     expect(calls[0]!.url).toBe('https://api.minimax.chat/v1/chat/completions')
-    expect(calls[0]!.body.model).toBe('MiniMax-Text-01')
+    expect(calls[0]!.body.model).toBe('MiniMax-M3.1-Flash')
     expect(result.provider).toBe('minimax')
   })
 

@@ -9,7 +9,7 @@ export const minimaxText: TextProvider = {
   label: 'MiniMax (compatible mode)',
   protocol: 'openai',
   baseUrl: 'https://api.minimax.chat/v1',
-  model: 'MiniMax-Text-01',
+  model: 'MiniMax-M3.1-Flash',
   apiKeyEnv: 'AI_API_KEY',
   supportsTools: true
 }

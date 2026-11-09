@@ -56,7 +56,7 @@ src/providers/
 | `AI_IMAGE_MODEL` | provider default | overrides the image model |
 | `AI_IMAGE_SIZE` | provider default | default image size when a call omits `size` |
 
-The text registry also includes `minimax`, using MiniMax's OpenAI-compatible ChatCompletion v2 endpoint with `MiniMax-Text-01` as its default model.
+The text registry also includes `minimax`, using MiniMax's OpenAI-compatible ChatCompletion v2 endpoint with `MiniMax-M3.1-Flash` as its default model.
 
 Adding a provider is one file plus one line in the matching `index.ts`; the CLI and the
 calling project do not change. Public sizes are always `WxH`, and each provider declares
@@ -95,7 +95,7 @@ env 仓库使用 `imba97/env` 的 `main` 分支，store 为 `ci-kit-roundtable`�
 | --- | --- |
 | `AI_TEXT_PROVIDER` | 固定为 `minimax` |
 | `AI_API_KEY` | MiniMax API Key |
-| `AI_TEXT_MODEL` | 可选，默认 `MiniMax-Text-01` |
+| `AI_TEXT_MODEL` | 可选，默认 `MiniMax-M3.1-Flash` |
 
 仓库根目录的 `.initx-env.json` 只保存 env 仓库定位信息；`.env` 由工作流临时拉取并被忽略，不提交密钥。
 

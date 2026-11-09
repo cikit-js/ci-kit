@@ -16,7 +16,7 @@ describe('text providers', () => {
       id: 'minimax',
       protocol: 'openai',
       baseUrl: 'https://api.minimax.chat/v1',
-      model: 'MiniMax-Text-01'
+      model: 'MiniMax-M3.1-Flash'
     })
   })
 
