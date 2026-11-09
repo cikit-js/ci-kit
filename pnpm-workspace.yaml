@@ -1,4 +1,7 @@
 minimumReleaseAgeExcludePrune: true
+minimumReleaseAgeExclude:
+  - '@initx-plugin/env@0.4.1'
+
 trustPolicy: no-downgrade
 shellEmulator: true
 
