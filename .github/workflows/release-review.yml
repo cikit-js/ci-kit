@@ -43,7 +43,7 @@ jobs:
       - name: build packages
         run: pnpm -r build
 
-      - name: hold 谋士会
+      - name: roundtable
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
