@@ -8,7 +8,7 @@ maxAttempts: 2
 reasoningEffort: low
 ---
 
-# 谋士会
+# 万事屋
 
 这是一次围绕版本变动的圆桌闲聊，不是评审会，也不改代码。
 

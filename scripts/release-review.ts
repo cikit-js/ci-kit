@@ -113,7 +113,7 @@ function renderGeneratedSection(input: {
   const record = transcript || `本次圆桌没有形成记录。\n\n原因：${failure}`
   const lines = [
     `${GENERATED_START}${tag} -->`,
-    `## 谋士会 · ${tag}`,
+    `## 万事屋 · ${tag}`,
     '',
     `围绕 ${range} 交谈，共 ${history.commits.length} 个 commit、${history.files.length} 个文件变更。`,
     '',
@@ -214,7 +214,7 @@ async function main(): Promise<void> {
     includeMerges: true
   })
   const context = packages.renderReleaseContext(history)
-  const topic = `请围绕 ${previousTag ?? '仓库初始提交'} 到 ${tag} 的真实变化开一场谋士会`
+  const topic = `请围绕 ${previousTag ?? '仓库初始提交'} 到 ${tag} 的真实变化开一场万事屋圆桌`
   const brief = '这是发布时的圆桌闲聊；只接材料里的变化，每次只说一句短话。'
 
   let result
@@ -234,7 +234,7 @@ async function main(): Promise<void> {
   }
   catch (error) {
     failure = errorMessage(error)
-    console.error(`谋士会未完成：${failure}`)
+    console.error(`万事屋未完成：${failure}`)
   }
 
   await writeArtifacts(tag, context, result, transcript, failure)
@@ -265,7 +265,7 @@ async function main(): Promise<void> {
 
   console.log(`GitHub Release 已${existing ? '更新' : '创建'}：${release.html_url}`)
   if (result) {
-    console.log(`谋士会状态：${result.status}，记录：${result.recordPath}`)
+    console.log(`万事屋状态：${result.status}，记录：${result.recordPath}`)
   }
 }
 
