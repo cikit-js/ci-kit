@@ -1,7 +1,7 @@
 {
   "name": "@ci-kit/github",
   "type": "module",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "description": "Minimal GitHub API client for releases and release assets",
   "author": "imba97",
   "license": "MIT",
