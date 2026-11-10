@@ -115,6 +115,8 @@ function renderGeneratedSection(input: {
     `${GENERATED_START}${tag} -->`,
     `## 万事屋 · ${tag}`,
     '',
+    '![万事屋圆桌](https://raw.githubusercontent.com/cikit-js/ci-kit/main/.github/assets/yorozuya-roundtable.png)',
+    '',
     `围绕 ${range} 交谈，共 ${history.commits.length} 个 commit、${history.files.length} 个文件变更。`,
     '',
     '### 圆桌记录',
