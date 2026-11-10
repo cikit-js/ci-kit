@@ -225,7 +225,8 @@ export function buildUserPrompt(input: PromptInput): string {
   blocks.push(
     '## 输出要求\n\n'
     + '只说一句你要说的话，像在圆桌上接话一样，不要复述材料、不要写报告。\n'
-    + '如果要回应别人，直接点名回应，不要泛泛而谈。'
+    + '每次只代表你自己发言。直接说台词，不加说话人标签，也不要替其他参与者写台词或续写整段对话。\n'
+    + '如果要回应别人，可以把对方的名字当作称呼，用逗号接着说。'
   )
 
   if (input.askFinished) {
