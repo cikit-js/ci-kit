@@ -1,6 +1,6 @@
 ---
 id: kagura
-role: 暴力少女
+role: 掀桌役
 
 identity:
   name: 神乐
