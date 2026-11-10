@@ -30,6 +30,7 @@ export interface AiErrorInit {
   /** Whether the same request may succeed later without changing anything. */
   retryable?: boolean
   cause?: unknown
+  rawReply?: string
 }
 
 export class AiError extends Error {
@@ -38,6 +39,7 @@ export class AiError extends Error {
   readonly model?: string
   readonly status?: number
   readonly retryable: boolean
+  readonly rawReply?: string
 
   constructor(init: AiErrorInit) {
     super(init.message, { cause: init.cause })
@@ -47,6 +49,7 @@ export class AiError extends Error {
     this.model = init.model
     this.status = init.status
     this.retryable = init.retryable ?? false
+    this.rawReply = init.rawReply
   }
 
   /** One line for logs. Never includes the request body or the key. */

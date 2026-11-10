@@ -4,32 +4,23 @@ import process from 'node:process'
 import { requestJson } from '@ci-kit/http'
 import { AiError } from './errors'
 import { resolveTextProvider } from './providers'
-import { apiKeyOf, supportsJsonMode, supportsJsonSchema, supportsToolCalling, trimSlash, wrapError } from './transport'
+import { parseSchemaReply, REPLY_TOOL } from './schema-reply'
+import { apiKeyOf, supportsToolCalling, trimSlash, wrapError } from './transport'
 
 export async function text(options: TextOptions): Promise<AiResult<string>> {
   const env = options.env ?? process.env
   const provider = resolveTextProvider(env)
-  // A schema is a stronger way of saying "JSON", so it implies it.
-  const wantJson = options.json === true || options.schema !== undefined
-
-  if (wantJson && !supportsJsonMode(provider)) {
-    throw new AiError({
-      kind: 'config',
-      provider: provider.id,
-      model: provider.model,
-      message: `Provider ${provider.id} does not support JSON output; remove json or schema, or change provider`
-    })
-  }
+  const replySchema = options.schema
 
   const tools = options.tools && options.tools.length
     ? [...options.tools]
     : []
-  if (tools.length && !supportsToolCalling(provider)) {
+  if ((tools.length || replySchema) && !supportsToolCalling(provider)) {
     throw new AiError({
       kind: 'config',
       provider: provider.id,
       model: provider.model,
-      message: `Provider ${provider.id} does not support tool calling; remove tools or change provider`
+      message: `Provider ${provider.id} does not support tool calling; remove tools and schema or change provider`
     })
   }
   if (tools.length && !options.executeTool) {
@@ -40,6 +31,15 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
       message: 'Tool calling requires an executeTool handler'
     })
   }
+  if (replySchema && tools.some(tool => tool.name === REPLY_TOOL)) {
+    throw new AiError({ kind: 'config', message: `Tool name ${REPLY_TOOL} is reserved for schema replies` })
+  }
+  const requestTools = replySchema
+    ? [
+        ...tools,
+        { name: REPLY_TOOL, description: 'Submit the final reply for this turn.', parameters: replySchema }
+      ]
+    : tools
   const maxToolCalls = options.maxToolCalls ?? 8
   if (!Number.isInteger(maxToolCalls) || maxToolCalls < 1) {
     throw new AiError({
@@ -66,7 +66,12 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
           { role: 'system', content: options.system }
         ]
       : []),
-    { role: 'user', content: options.prompt }
+    {
+      role: 'user',
+      content: replySchema
+        ? `${options.prompt}\n\nUse the ${REPLY_TOOL} tool to submit your final reply.`
+        : options.prompt
+    }
   ]
 
   const model = env.AI_TEXT_MODEL || provider.model
@@ -93,18 +98,8 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
       // ignores it rather than failing the call.
       body.reasoning_effort = options.reasoningEffort
     }
-    if (wantJson) {
-      body.response_format = options.schema && supportsJsonSchema(provider)
-        // A named schema is enforced by the provider, so the model is not free to
-        // invent field names; the parser downstream still treats it as untrusted.
-        ? {
-            type: 'json_schema',
-            json_schema: { name: 'reply', strict: true, schema: options.schema }
-          }
-        : { type: 'json_object' }
-    }
-    if (tools.length) {
-      body.tools = tools.map(tool => ({
+    if (requestTools.length) {
+      body.tools = requestTools.map(tool => ({
         type: 'function',
         function: {
           name: tool.name,
@@ -133,6 +128,36 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
     outputTokens += Number(data.usage?.completion_tokens) || 0
     const choice = data.choices?.[0]
     const requested = choice?.message?.tool_calls ?? []
+    if (replySchema) {
+      const reply = requested.find(call => call.function?.name === REPLY_TOOL)
+      if (reply || !requested.length) {
+        const args = reply?.function?.arguments
+        const structured = typeof args === 'string'
+          ? parseSchemaReply(args, replySchema)
+          : undefined
+        if (requested.length === 1 && typeof args === 'string' && choice?.finish_reason !== 'length' && structured) {
+          return {
+            value: args,
+            structured,
+            provider: provider.id,
+            model,
+            usage: { input: inputTokens, output: outputTokens },
+            finishReason: choice?.finish_reason,
+            ...(executions.length
+              ? { toolCalls: executions }
+              : {})
+          }
+        }
+        throw new AiError({
+          kind: 'output',
+          provider: provider.id,
+          model,
+          retryable: true,
+          message: reply ? 'Invalid arguments from reply tool' : 'Provider did not call the reply tool',
+          rawReply: args ?? choice?.message?.content ?? undefined
+        })
+      }
+    }
     if (requested.length) {
       if (!options.executeTool) {
         throw new AiError({
@@ -161,6 +186,9 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
       messages.push({
         role: 'assistant',
         content: choice?.message?.content ?? null,
+        ...(provider.id === 'minimax' && choice?.message?.reasoning_content
+          ? { reasoning_content: choice.message.reasoning_content }
+          : {}),
         tool_calls: assistantCalls
       })
       for (const call of assistantCalls) {

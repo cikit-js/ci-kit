@@ -45,8 +45,7 @@ cli
   .option('--system <text>', 'System message')
   .option('--var <k=v>', 'Template variable, repeatable')
   .option('--max-tokens <n>', 'Upper bound for generated tokens')
-  .option('--json', 'Ask for a JSON object response')
-  .option('--schema-file <path>', 'JSON Schema file the reply must satisfy; implies --json')
+  .option('--schema-file <path>', 'JSON Schema for the reply tool')
   .option('--temperature <n>', 'Sampling temperature')
   .option('--retries <n>', 'Transport retries; use 0 for paid calls')
   .option('--out <path>', 'Write result to file')
@@ -64,7 +63,6 @@ cli
         prompt: readPrompt(options.prompt as string | undefined, options.promptFile as string | undefined, vars),
         system: options.system as string | undefined,
         maxTokens: optionalNumber(options.maxTokens as string | undefined),
-        json: options.json === true,
         schema: options.schemaFile === undefined
           ? undefined
           : JSON.parse(readFileSync(options.schemaFile as string, 'utf8')),

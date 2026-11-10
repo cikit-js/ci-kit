@@ -392,7 +392,7 @@ seat:
     expect(calls[0]!.retries).toBe(0)
   })
 
-  it('marks an unparseable JSON reply as a failed statement', async () => {
+  it('rejects a text reply when structured tool arguments are required', async () => {
     const voting = seat(`---
 id: a
 role: 甲
@@ -420,7 +420,7 @@ seat:
     })
     expect(calls[0]!.schema).toMatchObject({ type: 'object' })
     expect(result.statements[0]!.status).toBe('failed')
-    expect(result.statements[0]!.error).toContain('JSON')
+    expect(result.statements[0]!.error).toContain('structured reply')
     expect(result.statements[0]!.verdict).toBeUndefined()
   })
 

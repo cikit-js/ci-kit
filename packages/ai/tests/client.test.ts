@@ -62,53 +62,19 @@ afterEach(() => {
 })
 
 describe('text requests', () => {
-  it('passes maxTokens, temperature and json through to the provider', async () => {
+  it('passes maxTokens and temperature through to the provider', async () => {
     const calls = mockFetch(() => chat('{}'))
     await text({
       prompt: 'hi',
       maxTokens: 4096,
       temperature: 0.2,
-      json: true,
       env: ENV
     })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.body).toMatchObject({
       max_tokens: 4096,
       temperature: 0.2,
-      response_format: { type: 'json_object' },
       stream: false
-    })
-  })
-
-  it('sends a schema as a named structured output contract', async () => {
-    const calls = mockFetch(() => chat('{"verdict":"pass"}'))
-    const schema = {
-      type: 'object' as const,
-      properties: {
-        verdict: {
-          type: 'string' as const,
-          enum: ['pass', 'reject']
-        }
-      },
-      required: ['verdict'],
-      additionalProperties: false
-    }
-    await text({ prompt: 'hi', schema, env: ENV })
-    expect(calls[0]!.body.response_format).toEqual({
-      type: 'json_schema',
-      json_schema: { name: 'reply', strict: true, schema }
-    })
-  })
-
-  it('lets a schema imply JSON without json: true', async () => {
-    const calls = mockFetch(() => chat('{}'))
-    await text({
-      prompt: 'hi',
-      schema: { type: 'object' as const, properties: {} },
-      env: ENV
-    })
-    expect(calls[0]!.body).toMatchObject({
-      response_format: { type: 'json_schema' }
     })
   })
 
@@ -156,7 +122,7 @@ describe('text requests', () => {
     mockFetch(() => chat('{}'))
     const env = { ...ENV, AI_TEXT_PROVIDER: 'nope' }
     // An unknown provider fails before json mode is considered.
-    await expect(text({ prompt: 'hi', json: true, env })).rejects.toThrow(/Unknown AI_TEXT_PROVIDER/)
+    await expect(text({ prompt: 'hi', env })).rejects.toThrow(/Unknown AI_TEXT_PROVIDER/)
   })
 
   it('reports a missing key as a config error', async () => {
@@ -192,6 +158,51 @@ describe('text requests', () => {
     expect(calls[0]!.url).toBe('https://api.minimax.chat/v1/chat/completions')
     expect(calls[0]!.body.model).toBe('MiniMax-M3.1-Flash')
     expect(result.provider).toBe('minimax')
+  })
+
+  it('takes MiniMax schema replies from the reply tool and rejects plain text', async () => {
+    const env = { ...ENV, AI_TEXT_PROVIDER: 'minimax' }
+    const schema = {
+      type: 'object' as const,
+      properties: {
+        speech: { type: 'string' as const },
+        finished: { type: 'boolean' as const }
+      },
+      required: ['speech', 'finished']
+    }
+    const args = '{"speech":"hi","finished":false}'
+    const calls = mockFetch(() => Response.json({
+      choices: [
+        {
+          finish_reason: 'tool_calls',
+          message: {
+            tool_calls: [
+              {
+                function: { name: 'submit_reply', arguments: args }
+              }
+            ]
+          }
+        }
+      ]
+    }))
+    await expect(text({ prompt: 'hi', env, schema })).resolves.toMatchObject({
+      value: args,
+      structured: { speech: 'hi', finished: false }
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.body.response_format).toBeUndefined()
+    expect(calls[0]!.body.tools).toEqual([
+      {
+        type: 'function',
+        function: {
+          name: 'submit_reply',
+          description: expect.any(String),
+          parameters: schema
+        }
+      }
+    ])
+    mockFetch(() => chat('plain reply'))
+    await expect(text({ prompt: 'hi', env, schema })).rejects.toMatchObject({ kind: 'output', rawReply: 'plain reply' })
   })
 
   it('executes provider tool calls and sends the result back before the final answer', async () => {

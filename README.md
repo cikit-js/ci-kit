@@ -8,7 +8,7 @@ Use the meta package (`@ci-kit/core`), or install only the part you need.
 ```bash
 npx @ci-kit/core changelog --from v1.0.4 --to v1.0.5 --out notes.md
 npx @ci-kit/ai text --prompt-file prompts/review.md --out review.txt
-npx @ci-kit/ai text --prompt-file prompts/write.md --json --max-tokens 16000 --retries 0 --out article.json
+npx @ci-kit/ai text --prompt-file prompts/write.md --schema-file prompts/article.schema.json --max-tokens 16000 --retries 0 --out article.json
 npx @ci-kit/ai image --prompt "flat illustration, no text" --size 2560x1440 --out image.png
 npx @ci-kit/changelog --from v1.0.4 --out notes.md
 npx @ci-kit/roundtable init .ci-kit/roundtable
@@ -77,10 +77,10 @@ const reply = await text({
 const picture = await image({ prompt: 'flat illustration, no text', size: '2560x1440' })
 ```
 
-`text()` forwards `maxTokens`, `temperature` and `json` (as `response_format`) when set,
+`text()` forwards `maxTokens` and `temperature` when set,
 reports `usage` and `finishReason`, and fails when the provider ends with a reason other
-than `stop` — a truncated string is not a successful answer. `json: true` throws on a
-provider that cannot honour it instead of silently ignoring the request.
+than `stop` for plain text. Pass `schema` to collect the final reply through the
+`submit_reply` tool. The validated arguments are available as `structured`.
 
 `image()` requires exactly one image in the response, surfaces item level errors by code
 only, and rejects payloads that are neither PNG nor JPEG.

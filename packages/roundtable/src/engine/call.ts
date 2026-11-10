@@ -158,32 +158,23 @@ export async function callSeat(seat: Seat, prompt: string, context: CallContext)
       env: context.env
     })
 
-    let structured: unknown
-    if (wantJson) {
-      const fenced = /^\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(result.value)
-      const jsonInput = fenced?.[1] ?? result.value
-      try {
-        structured = JSON.parse(jsonInput)
-      }
-      catch {
-        return {
-          ok: false,
-          content: result.value,
-          model: result.model,
-          usage: result.usage,
-          durationMs: elapsed(),
-          error: 'output: seat returned invalid JSON',
-          kind: 'output',
-          fatal: false,
-          // The discussion loop retries once for seats that opted into retry.
-          retryable: seat.seat.fallback === 'retry'
-        }
+    if (wantJson && !result.structured) {
+      return {
+        ok: false,
+        content: result.value,
+        model: result.model,
+        usage: result.usage,
+        durationMs: elapsed(),
+        error: 'output: seat did not return a structured reply',
+        kind: 'output',
+        fatal: false,
+        retryable: seat.seat.fallback === 'retry'
       }
     }
     return {
       ok: true,
       content: result.value,
-      structured,
+      structured: result.structured,
       toolCalls: result.toolCalls,
       model: result.model,
       usage: result.usage,
@@ -196,7 +187,9 @@ export async function callSeat(seat: Seat, prompt: string, context: CallContext)
     const described = describeError(error)
     return {
       ok: false,
-      content: '',
+      content: isAiError(error)
+        ? error.rawReply ?? ''
+        : '',
       durationMs: elapsed(),
       error: described.text,
       kind: described.kind,

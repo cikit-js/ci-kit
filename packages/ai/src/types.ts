@@ -2,9 +2,7 @@
  * The subset of JSON Schema an output contract needs: a typed object with named,
  * required properties and optional enums.
  *
- * Deliberately narrow. A caller describing more than this is usually translating
- * a prompt into a schema, and a schema that cannot be honoured by a provider is
- * worse than a plain `json_object` request.
+ * Used to describe the reply tool and validate its arguments locally.
  */
 export interface JsonSchema {
   type: 'object'
@@ -70,20 +68,7 @@ export interface TextOptions {
   system?: string
   /** Upper bound for the generated text. Providers that support it pass it through. */
   maxTokens?: number
-  /** Ask the provider for a JSON object. Unsupported providers throw instead of ignoring it. */
-  json?: boolean
-  /**
-   * JSON Schema the reply must satisfy.
-   *
-   * Passing a schema implies `json: true`: the schema is the contract, and a
-   * provider that can only guarantee "some JSON object" is asked for exactly
-   * that. Providers with structured output honour the schema; the rest still
-   * get `json_object`, and the caller validates against the same schema.
-   *
-   * The schema is what replaces hand-written JSON in a prompt: the shape lives in
-   * code, next to the parser that reads it, instead of being described in prose
-   * the model may paraphrase.
-   */
+  /** Schema for the final reply tool. The validated object is returned as structured. */
   schema?: JsonSchema
   /** Functions the model may call before returning its final text. */
   tools?: readonly ToolSpec[]
@@ -132,6 +117,7 @@ export interface TokenUsage {
 
 export interface AiResult<T> {
   value: T
+  structured?: Record<string, unknown>
   provider: string
   model: string
   /** Present when the provider reports token usage. */

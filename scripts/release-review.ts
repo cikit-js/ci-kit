@@ -28,7 +28,6 @@ interface RoundtableResult {
       content: string
       error?: string
       finished?: boolean
-      structured?: { finished?: boolean }
     }>
   }
 }
@@ -128,25 +127,6 @@ function renderGeneratedSection(input: {
 }
 
 function renderConversation(record: RoundtableResult['record']): string {
-  const readMessage = (content: string): { message: string, finished?: boolean } => {
-    if (!/^\s*\{[\s\S]*\}\s*$/.test(content)) {
-      return { message: content }
-    }
-    try {
-      const value = JSON.parse(content) as { message?: unknown, speech?: unknown, finished?: unknown }
-      let message = ''
-      if (typeof value.message === 'string') {
-        message = value.message
-      }
-      else if (typeof value.speech === 'string') {
-        message = value.speech
-      }
-      return { message, finished: value.finished === true }
-    }
-    catch {
-      return { message: content }
-    }
-  }
   const lines = record.statements.flatMap((statement) => {
     if (statement.status === 'failed') {
       return [`- ${statement.name}：发言失败（${statement.error || '未知错误'}）`]
@@ -154,12 +134,11 @@ function renderConversation(record: RoundtableResult['record']): string {
     if (statement.status !== 'completed' || !statement.content.trim()) {
       return []
     }
-    const parsed = readMessage(statement.content)
-    const content = parsed.message.replace(/\r?\n+/g, ' ').trim()
+    const content = statement.content.replace(/\r?\n+/g, ' ').trim()
     if (!content) {
       return []
     }
-    const finished = parsed.finished || statement.finished === true || statement.structured?.finished === true
+    const finished = statement.finished === true
     return [`- ${statement.name}：${content}${finished ? ' ✔' : ''}`]
   })
   return lines.join('\n\n')

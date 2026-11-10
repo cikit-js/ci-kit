@@ -69,8 +69,18 @@ export function stubText(options: StubOptions): { callText: TextCaller, calls: C
     if (value instanceof Error) {
       throw value
     }
+    let structured: Record<string, unknown> | undefined
+    if (input.schema) {
+      try {
+        structured = JSON.parse(value)
+      }
+      catch {
+        // Simulate a provider reply without validated tool arguments.
+      }
+    }
     return {
       value,
+      structured,
       provider: 'stub',
       model: options.model ?? 'stub-model',
       usage: options.usage

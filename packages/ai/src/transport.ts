@@ -6,6 +6,7 @@ export interface ChatResponse {
   choices?: Array<{
     message?: {
       content?: string
+      reasoning_content?: string
       tool_calls?: Array<{
         id?: string
         type?: string
@@ -78,14 +79,6 @@ export function wrapError(error: unknown, provider: { id: string, model: string 
     message: `${context} failed`,
     cause: error
   })
-}
-
-export function supportsJsonMode(provider: TextProvider): boolean {
-  return provider.protocol === 'openai' || provider.protocol === 'dashscope'
-}
-
-export function supportsJsonSchema(provider: TextProvider): boolean {
-  return provider.protocol === 'openai' || provider.protocol === 'dashscope'
 }
 
 export function supportsToolCalling(provider: TextProvider): boolean {
