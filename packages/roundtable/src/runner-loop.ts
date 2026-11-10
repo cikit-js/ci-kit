@@ -172,7 +172,11 @@ export async function runLoop(context: RunnerContext, resumeFrom?: { pool: State
         persist: context.persist,
         events: {
           onStatement: (statement) => {
-            options.onProgress?.(`  ${statement.name} · ${statement.status}`)
+            let line = `  ${statement.name} · ${statement.status}`
+            if (statement.status === 'failed' && statement.error) {
+              line += ` (${statement.error.replace(/[\r\n]+/g, ' ').trim()})`
+            }
+            options.onProgress?.(line)
           }
         }
       })

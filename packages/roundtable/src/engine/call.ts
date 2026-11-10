@@ -161,7 +161,8 @@ export async function callSeat(seat: Seat, prompt: string, context: CallContext)
     let structured: unknown
     if (wantJson) {
       try {
-        structured = JSON.parse(result.value)
+        const fenced = /^\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(result.value)
+        structured = JSON.parse(fenced?.[1] ?? result.value)
       }
       catch {
         return {
@@ -173,8 +174,8 @@ export async function callSeat(seat: Seat, prompt: string, context: CallContext)
           error: 'output: seat returned invalid JSON',
           kind: 'output',
           fatal: false,
-          // A paid call that produced unparseable text is not retried.
-          retryable: false
+          // The discussion loop retries once for seats that opted into retry.
+          retryable: seat.seat.fallback === 'retry'
         }
       }
     }
