@@ -32,6 +32,14 @@ export function judgeAttempt(loaded: LoadedRoundtable, statements: Statement[]):
     }
   }
   const votes = finalVotes(seats, statements)
+  if (!votes.length && !loaded.table.outputFields) {
+    const passed = statements.some(statement => statement.status === 'completed' && statement.speech?.trim())
+    return {
+      passed,
+      vetoed: [],
+      score: passed ? 1 : 0
+    }
+  }
   const judgement = judgeMeeting(seats, votes, loaded.table)
   return {
     passed: judgement.passed,

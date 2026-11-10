@@ -46,7 +46,6 @@ seat:
   weight: 1
   maxTokens: 80
   fallback: skip
-  output: json
 ---
 
 你负责判断这篇文章能不能公开。
@@ -209,7 +208,7 @@ enabled: false
     const dir = await makeConfig({
       table: FINAL_TABLE,
       seats: {
-        'uther.md': UTHER.replace('  output: json\n', '  output: json\n').replace('\nidentity:', '\nenabled: false\n\nidentity:')
+        'uther.md': UTHER.replace('\nidentity:', '\nenabled: false\n\nidentity:')
       }
     })
     await expect(loadRoundtable({ configDir: dir })).rejects.toThrow(/Every seat is disabled/)

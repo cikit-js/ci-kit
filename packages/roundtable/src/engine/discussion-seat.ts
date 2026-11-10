@@ -50,7 +50,7 @@ export async function runSeatLoop(seat: Seat, state: SeatLoopState): Promise<voi
         const idleExit = Date.now() - waitingSince >= MAX_IDLE_MS
         if (state.stalled() || idleExit) {
           const owesFields = Object.keys(state.loaded.table.outputFields ?? {}).length > 0
-          const pending = seat.seat.output === 'json' && (state.unfinished.has(seat.id) || owesFields)
+          const pending = owesFields || state.unfinished.has(seat.id)
           if (pending && !state.lastChanceUsed.has(seat.id) && !state.quiet.has(seat.id)) {
             state.lastChanceUsed.add(seat.id)
             state.waiting.delete(seat.id)
@@ -90,7 +90,6 @@ export async function runSeatLoop(seat: Seat, state: SeatLoopState): Promise<voi
       revisionNotes: (state.options.attempt ?? 1) === 1
         ? state.options.openingNotes ?? state.options.revisionNotes
         : state.options.revisionNotes,
-      askFinished: seat.seat.output === 'json',
       outputFields: state.loaded.table.outputFields,
       roomQuiet: lastChance
     })

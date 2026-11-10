@@ -28,7 +28,6 @@ identity:
   name: 格罗姆
   avatar: 🏪
 seat:
-  output: json
 ---
 格罗姆。
 `,
@@ -39,7 +38,6 @@ identity:
   name: 吉安娜
   avatar: ✍️
 seat:
-  output: json
 ---
 吉安娜。
 `,
@@ -50,7 +48,6 @@ identity:
   name: 乌瑟尔
   avatar: ⚖️
 seat:
-  output: json
   canVeto: true
 ---
 乌瑟尔。
@@ -62,7 +59,6 @@ identity:
   name: 麦迪文
   avatar: 🛡️
 seat:
-  output: json
 ---
 麦迪文。
 `
@@ -73,9 +69,7 @@ const pass = JSON.stringify({ verdict: 'pass', reason: '' })
 /**
  * A reply function for e2e runs.
  *
- * JSON seats answer `pass` unless the test says otherwise; a plain-text seat
- * answers `发言`. The default matters: a JSON seat that answers prose is a failed
- * call by contract, which is exactly what most tests do not want to exercise.
+ * Seats close with a passing vote unless the test supplies another reply.
  */
 function seatReplies(
   replies: Record<string, string | ((call: Call, index: number) => Promise<string | Error>)> = {}
@@ -88,7 +82,7 @@ function seatReplies(
           : reply
       }
     }
-    return call.schema ? pass : '发言'
+    return pass
   }
 }
 
@@ -160,7 +154,9 @@ describe('runRoundtable', () => {
       name: '格罗姆',
       role: '门店读者视角',
       status: 'completed',
-      content: pass,
+      content: '',
+      speech: '',
+      finished: true,
       verdict: 'pass'
     })
     expect(record.usage).toEqual({ input: 0, output: 0 })
@@ -198,7 +194,7 @@ describe('runRoundtable', () => {
     expect(prompt).toContain('### 材料 2\n\n素材')
   })
 
-  it('uses the seat persona as the system prompt and asks for JSON', async () => {
+  it('uses the seat persona and offers the closing tool', async () => {
     const dir = await makeConfig({
       table: TABLE,
       seats: { 'grom.md': SEATS['grom.md'] }
@@ -345,7 +341,7 @@ describe('runRoundtable', () => {
 
   it('aborts the meeting when a seat with fallback: abort fails', async () => {
     const seats = {
-      'grom.md': SEATS['grom.md'].replace('  output: json', '  output: json\n  fallback: abort')
+      'grom.md': SEATS['grom.md'].replace('seat:\n', 'seat:\n  fallback: abort\n')
     }
     const dir = await makeConfig({ table: TABLE, seats })
     const { callText } = stubText({
@@ -717,7 +713,9 @@ describe('resumeRoundtable', () => {
       role: '门店读者视角',
       at: '2026-11-06T08:00:10+08:00',
       status: 'completed',
-      content: pass,
+      content: '',
+      speech: '',
+      finished: true,
       verdict: 'pass'
     }
     state.status = 'running'

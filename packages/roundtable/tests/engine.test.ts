@@ -3,6 +3,7 @@ import type { Statement } from '../src/prompt'
 import type { Seat } from '../src/seat'
 import { describe, expect, it } from 'vitest'
 import { discuss, estimateTokens, finalVotes, trimPool } from '../src/engine'
+import { callSeat } from '../src/engine/call'
 import { readFrontmatter } from '../src/frontmatter'
 import { parseSeat } from '../src/seat'
 import { aiError, fakeClock, stubText } from './helpers'
@@ -27,6 +28,22 @@ identity:
 ---
 乙。
 `)
+
+it('wraps natural speech and silent completion in the same roundtable shape', async () => {
+  const plain = await callSeat(A, '聊聊', {
+    callText: async () => ({ value: '这次改动挺有意思。', provider: 'stub', model: 'stub' })
+  })
+  expect(plain.structured).toEqual({ speech: '这次改动挺有意思。', finished: false })
+  const done = await callSeat(A, '聊聊', {
+    callText: async () => ({
+      value: '',
+      structured: {},
+      provider: 'stub',
+      model: 'stub'
+    })
+  })
+  expect(done.structured).toEqual({ speech: '', finished: true })
+})
 
 function loaded(seats: Seat[], overrides: { durationMs?: number, maxPoolTokens?: number, outputFields?: Record<string, string> } = {}): LoadedRoundtable {
   const enabled = seats.filter(item => item.enabled)
@@ -135,12 +152,12 @@ describe('discuss', () => {
     expect(result.statements).toHaveLength(2)
   })
 
-  it('has every seat say one line, then ends the meeting', async () => {
+  it('ends when each seat uses the closing tool', async () => {
     const clock = fakeClock()
     const { callText, calls } = stubText({
       reply: () => {
         clock.advance(1_000)
-        return '一句'
+        return JSON.stringify({ speech: '一句' })
       }
     })
     const result = await discuss({
@@ -151,8 +168,7 @@ describe('discuss', () => {
       now: clock.now,
       sleep: async () => {}
     })
-    // Two seats, each speaks once. Then both are waiting for the other and the
-    // room is stalled — the meeting ends on agreement, not on the deadline.
+    // Each seat closes with its final line.
     expect(calls).toHaveLength(2)
     expect(result.statements).toHaveLength(2)
     expect(new Set(result.statements.map(item => item.seat)).size).toBe(2)
@@ -212,7 +228,7 @@ describe('discuss', () => {
     // Whatever a later turn reads, it reads the whole completed pool — there is
     // no per-seat filter to give it a narrower view.
     for (const prompt of spoken.slice(1)) {
-      expect(prompt).toContain('阿甲：')
+      expect(prompt).toContain('阿甲 · 甲')
     }
   })
 
@@ -392,38 +408,6 @@ seat:
     expect(calls[0]!.retries).toBe(0)
   })
 
-  it('rejects a text reply when structured tool arguments are required', async () => {
-    const voting = seat(`---
-id: a
-role: 甲
-identity:
-  name: 阿甲
-seat:
-  output: json
----
-甲。
-`)
-    const clock = fakeClock()
-    const { callText, calls } = stubText({
-      reply: () => {
-        clock.advance(2_000)
-        return '这不是 JSON'
-      }
-    })
-    const result = await discuss({
-      loaded: loaded([voting]),
-      topic: 'q',
-      context: [],
-      callText,
-      now: clock.now,
-      sleep: async () => {}
-    })
-    expect(calls[0]!.schema).toMatchObject({ type: 'object' })
-    expect(result.statements[0]!.status).toBe('failed')
-    expect(result.statements[0]!.error).toContain('structured reply')
-    expect(result.statements[0]!.verdict).toBeUndefined()
-  })
-
   it('adds up the usage it is given', async () => {
     const clock = fakeClock()
     const { callText } = stubText({
@@ -444,24 +428,20 @@ seat:
     expect(result.usage).toEqual({ input: 100, output: 10 })
   })
 
-  it('puts the sentence a JSON seat said into the pool, not its envelope', async () => {
-    // A json seat replies with a document. The next seat has to read the
-    // sentence inside it; handing it `{"speech":"…","finished":false}` turns the
-    // discussion into parsing and the release note into a log dump.
+  it('records ordinary speech without an envelope', async () => {
     const first = seat(`---
 id: a
 role: 甲
 identity:
   name: 阿甲
 seat:
-  output: json
 ---
 甲。
 `)
     const clock = fakeClock(undefined, 300)
     let turn = 0
     const { callText } = stubText({
-      reply: () => JSON.stringify({ speech: `我选第二个候选${++turn}`, finished: false })
+      reply: () => `我选第二个候选${++turn}`
     })
     const result = await discuss({
       loaded: loaded([first], { durationMs: 10_000 }),
@@ -489,7 +469,6 @@ role: 主持
 identity:
   name: 阿甲
 seat:
-  output: json
 ---
 甲。
 `)
@@ -528,7 +507,6 @@ role: 主持
 identity:
   name: 阿甲
 seat:
-  output: json
 ---
 甲。
 `)
@@ -557,7 +535,6 @@ role: 主持
 identity:
   name: 阿甲
 seat:
-  output: json
 ---
 甲。
 `)
@@ -584,7 +561,6 @@ role: 甲
 identity:
   name: 阿甲
 seat:
-  output: json
 ---
 甲。
 `)
@@ -594,7 +570,6 @@ role: 乙
 identity:
   name: 阿乙
 seat:
-  output: json
 ---
 乙。
 `)
@@ -643,7 +618,6 @@ role: 甲
 identity:
   name: 阿甲
 seat:
-  output: json
 ---
 甲。
 `)
@@ -684,7 +658,6 @@ role: 甲
 identity:
   name: 阿甲
 seat:
-  output: json
 ---
 甲。
 `)
@@ -694,7 +667,6 @@ role: 乙
 identity:
   name: 阿乙
 seat:
-  output: json
 ---
 乙。
 `)
@@ -739,7 +711,6 @@ role: 甲
 identity:
   name: 阿甲
 seat:
-  output: json
 ---
 甲。
 `)
@@ -749,7 +720,6 @@ role: 乙
 identity:
   name: 阿乙
 seat:
-  output: json
 ---
 乙。
 `)
@@ -788,13 +758,11 @@ describe('finalVotes', () => {
 id: grom
 role: 读者
 seat:
-  output: json
 ---`)
   const UTHER = voting(`---
 id: uther
 role: 合规
 seat:
-  output: json
   canVeto: true
 ---`)
 
@@ -845,7 +813,7 @@ role: 表达
     ])).toEqual([])
   })
 
-  it('treats a JSON seat without a verdict as not having voted', () => {
+  it('treats a statement without a verdict as not having voted', () => {
     expect(finalVotes([GROM], [
       said('grom', { reason: '还没想好' })
     ])).toEqual([])
@@ -882,7 +850,6 @@ role: 表达
 id: grom
 role: 读者
 seat:
-  output: json
   weight: 3
 ---`)
     expect(finalVotes([heavy], [

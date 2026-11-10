@@ -22,19 +22,16 @@ const GROM = seat(`---
 id: grom
 role: 门店读者视角
 seat:
-  output: json
 ---`)
 const JAINA = seat(`---
 id: jaina
 role: 品牌与表达
 seat:
-  output: json
 ---`)
 const UTHER = seat(`---
 id: uther
 role: 合规与风险
 seat:
-  output: json
   canVeto: true
 ---`)
 
@@ -190,7 +187,6 @@ id: ghost
 role: 幽灵
 enabled: false
 seat:
-  output: json
 ---`)
     const judgement = judgeMeeting(
       [GROM, disabled],

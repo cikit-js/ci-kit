@@ -11,17 +11,21 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
   const env = options.env ?? process.env
   const provider = resolveTextProvider(env)
   const replySchema = options.schema
+  const terminalTool = options.terminalTool
 
   const tools = options.tools && options.tools.length
     ? [...options.tools]
     : []
-  if ((tools.length || replySchema) && !supportsToolCalling(provider)) {
+  if ((tools.length || replySchema || terminalTool) && !supportsToolCalling(provider)) {
     throw new AiError({
       kind: 'config',
       provider: provider.id,
       model: provider.model,
       message: `Provider ${provider.id} does not support tool calling; remove tools and schema or change provider`
     })
+  }
+  if (terminalTool && (replySchema || tools.some(tool => tool.name === terminalTool.name))) {
+    throw new AiError({ kind: 'config', message: 'Terminal tool conflicts with another reply mode or tool name' })
   }
   if (tools.length && !options.executeTool) {
     throw new AiError({
@@ -39,7 +43,9 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
         ...tools,
         { name: REPLY_TOOL, description: 'Submit the final reply for this turn.', parameters: replySchema }
       ]
-    : tools
+    : terminalTool
+      ? [...tools, terminalTool]
+      : tools
   const maxToolCalls = options.maxToolCalls ?? 8
   if (!Number.isInteger(maxToolCalls) || maxToolCalls < 1) {
     throw new AiError({
@@ -128,6 +134,31 @@ export async function text(options: TextOptions): Promise<AiResult<string>> {
     outputTokens += Number(data.usage?.completion_tokens) || 0
     const choice = data.choices?.[0]
     const requested = choice?.message?.tool_calls ?? []
+    const terminalCall = terminalTool && requested.find(call => call.function?.name === terminalTool.name)
+    if (terminalTool && terminalCall) {
+      const args = terminalCall.function?.arguments
+      const structured = typeof args === 'string'
+        ? parseSchemaReply(args, terminalTool.parameters)
+        : undefined
+      if (requested.length !== 1 || choice?.finish_reason === 'length' || !structured) {
+        throw new AiError({
+          kind: 'output',
+          provider: provider.id,
+          model,
+          retryable: true,
+          message: `Invalid call to terminal tool ${terminalTool.name}`,
+          rawReply: args ?? choice?.message?.content ?? undefined
+        })
+      }
+      return {
+        value: choice?.message?.content ?? '',
+        structured,
+        provider: provider.id,
+        model,
+        usage: { input: inputTokens, output: outputTokens },
+        finishReason: choice?.finish_reason
+      }
+    }
     if (replySchema) {
       const reply = requested.find(call => call.function?.name === REPLY_TOOL)
       if (reply || !requested.length) {

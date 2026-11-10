@@ -62,17 +62,8 @@ export function statementFromOutcome(seat: Seat, outcome: Parameters<typeof call
     })
   }
 
-  const parsed = seat.seat.output === 'json'
-    ? readVerdict(outcome.structured)
-    : {}
-  // What lands in the pool is what the seat said, not the envelope it came in.
-  // A `output: json` reply is a document; other seats need the sentence inside,
-  // or the discussion reads like a log file.
-  const spoken = parsed.speech
-    ?? (typeof parsed.reason === 'string'
-      ? parsed.reason
-      : undefined)
-    ?? outcome.content
+  const parsed = readVerdict(outcome.structured)
+  const spoken = outcome.content
   const statement: Statement = {
     seat: seat.id,
     name: seat.identity.name,
@@ -86,17 +77,13 @@ export function statementFromOutcome(seat: Seat, outcome: Parameters<typeof call
     usage: outcome.usage,
     toolCalls: outcome.toolCalls
   }
-  if (seat.seat.output === 'json') {
-    if (parsed.verdict !== undefined) {
-      statement.verdict = parsed.verdict
-    }
-    statement.structured = outcome.structured
-    statement.finished = parsed.finished === true
-    // A veto with no reason is recorded as such and does not count. It stays
-    // `completed` for reading purposes, but the status says what happened.
-    if (parsed.verdict === 'reject' && seat.seat.canVeto && vetoReason(parsed, outcome.content).length === 0) {
-      statement.status = 'invalid-veto'
-    }
+  statement.structured = outcome.structured
+  statement.finished = parsed.finished === true
+  if (parsed.verdict !== undefined) {
+    statement.verdict = parsed.verdict
+  }
+  if (parsed.verdict === 'reject' && seat.seat.canVeto && vetoReason(parsed, outcome.content).length === 0) {
+    statement.status = 'invalid-veto'
   }
   return statement
 }

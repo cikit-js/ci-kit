@@ -28,7 +28,7 @@ export async function cleanupScratch(): Promise<void> {
 export interface Call {
   prompt: string
   system?: string
-  /** The output contract the seat asked for; present for voting seats. */
+  /** Parameters accepted by the optional closing tool. */
   schema?: unknown
   maxTokens?: number
   retries?: number
@@ -53,14 +53,14 @@ export function stubText(options: StubOptions): { callText: TextCaller, calls: C
   const callText = (async (input: {
     prompt: string
     system?: string
-    schema?: unknown
+    terminalTool?: { parameters: unknown }
     maxTokens?: number
     retries?: number
   }) => {
     const call: Call = {
       prompt: input.prompt,
       system: input.system,
-      schema: input.schema,
+      schema: input.terminalTool?.parameters,
       maxTokens: input.maxTokens,
       retries: input.retries
     }
@@ -70,16 +70,29 @@ export function stubText(options: StubOptions): { callText: TextCaller, calls: C
       throw value
     }
     let structured: Record<string, unknown> | undefined
-    if (input.schema) {
+    let speech = value
+    if (input.terminalTool && value.startsWith('{')) {
       try {
-        structured = JSON.parse(value)
+        const { finished, speech: line, ...args } = JSON.parse(value)
+        if (finished === false && !args.output && !args.verdict) {
+          speech = line ?? ''
+        }
+        else {
+          structured = {
+            ...args,
+            ...(line === undefined
+              ? {}
+              : { speech: line })
+          }
+          speech = ''
+        }
       }
       catch {
         // Simulate a provider reply without validated tool arguments.
       }
     }
     return {
-      value,
+      value: speech,
       structured,
       provider: 'stub',
       model: options.model ?? 'stub-model',

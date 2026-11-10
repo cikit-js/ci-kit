@@ -21,7 +21,6 @@ seat:
   weight: 1
   maxTokens: 512
   fallback: retry
-  output: json
 ---
 
 ## 身份与定位

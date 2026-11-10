@@ -5,7 +5,7 @@ import { readVerdict, vetoReason } from '../verdict'
 
 /** The structured verdict a seat cast, if any. */
 export function voteOf(seat: Seat, statement: Statement): Vote | undefined {
-  if (seat.seat.output !== 'json' || statement.verdict === undefined) {
+  if (statement.verdict === undefined) {
     return undefined
   }
   const parsed = readVerdict(statement.structured)

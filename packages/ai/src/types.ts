@@ -72,6 +72,8 @@ export interface TextOptions {
   schema?: JsonSchema
   /** Functions the model may call before returning its final text. */
   tools?: readonly ToolSpec[]
+  /** Optional tool that ends this request without another model call. */
+  terminalTool?: ToolSpec
   /** Executes a function requested by the model. Required when tools are supplied. */
   executeTool?: ToolExecutor
   /** Maximum number of function calls allowed during this request. */

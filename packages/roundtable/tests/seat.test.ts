@@ -30,7 +30,6 @@ seat:
   weight: 2
   maxTokens: 80
   fallback: skip
-  output: json
 ---
 
 你负责核对每个观点是否有依据。
@@ -56,8 +55,7 @@ describe('parseSeat', () => {
       maxTokens: 80,
       tools: [],
       maxToolCalls: 4,
-      fallback: 'skip',
-      output: 'json'
+      fallback: 'skip'
     })
     expect(seat.body).toBe('你负责核对每个观点是否有依据。')
   })
@@ -73,7 +71,6 @@ role: 门店读者视角
     expect(seat.seat.weight).toBe(1)
     expect(seat.seat.maxTokens).toBe(SEAT_DEFAULTS.maxTokens)
     expect(seat.seat.fallback).toBe('skip')
-    expect(seat.seat.output).toBe('text')
     expect(seat.enabled).toBe(true)
   })
 
@@ -247,7 +244,7 @@ id: grom
 role: 读者
 seat:
   output: markdown
----`)).toThrow(/output must be text or json/)
+---`)).toThrow(/unknown field/)
   })
 
   it('labels an error with the file it came from', () => {

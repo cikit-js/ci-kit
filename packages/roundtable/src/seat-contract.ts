@@ -1,5 +1,4 @@
 export type Fallback = 'skip' | 'retry' | 'abort'
-export type SeatOutput = 'text' | 'json'
 
 export interface SeatIdentity {
   name: string
@@ -25,7 +24,6 @@ export interface SeatPowers {
   tools: string[]
   maxToolCalls: number
   fallback: Fallback
-  output: SeatOutput
 }
 
 export interface Seat {
@@ -54,6 +52,5 @@ export const SEAT_DEFAULTS = {
   maxTokens: 1000,
   tools: [] as string[],
   maxToolCalls: 4,
-  fallback: 'skip',
-  output: 'text'
+  fallback: 'skip'
 } as const

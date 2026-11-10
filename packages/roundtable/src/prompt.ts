@@ -11,13 +11,13 @@ export interface Statement {
   /**
    * The line this seat actually said, in words another seat can read.
    *
-   * A `output: json` seat replies with a JSON document. Storing that verbatim in
+   * A closing tool may carry structured arguments. Storing them verbatim in
    * the pool means every later seat reads `{"verdict":…}` instead of a sentence,
    * and the discussion turns into parsing. `content` keeps what the provider
    * returned — that is evidence — while the pool and the release note read this.
    */
   speech?: string
-  /** The seat's structured judgement, when `output: json` parsed cleanly. */
+  /** The seat's structured judgement, when supplied by the closing tool. */
   verdict?: 'pass' | 'reject'
   /**
    * The seat reported its own target is met.

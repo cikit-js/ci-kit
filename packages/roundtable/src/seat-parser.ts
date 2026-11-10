@@ -1,5 +1,5 @@
 import type { Document } from './frontmatter'
-import type { Fallback, Seat, SeatOutput } from './seat-contract'
+import type { Fallback, Seat } from './seat-contract'
 import type { YamlMapping, YamlValue } from './yaml'
 import { SEAT_DEFAULTS, SeatError } from './seat-contract'
 
@@ -33,8 +33,7 @@ const SEAT_KEYS = new Set([
   'maxTokens',
   'tools',
   'maxToolCalls',
-  'fallback',
-  'output'
+  'fallback'
 ])
 
 /**
@@ -64,8 +63,7 @@ const FLAT_ALIASES = new Map<string, 'identity' | 'persona' | 'seat'>([
     'canVeto',
     'weight',
     'maxTokens',
-    'fallback',
-    'output'
+    'fallback'
   ].map(key => [key, 'seat'] as const)
 ])
 
@@ -184,15 +182,6 @@ function parseFallback(value: YamlValue | undefined, label: string): Fallback {
   throw new SeatError(label, `seat.fallback must be skip, retry or abort; got ${JSON.stringify(value)}`)
 }
 
-function parseOutput(value: YamlValue | undefined, label: string): SeatOutput {
-  if (value === undefined || value === null) {
-    return SEAT_DEFAULTS.output
-  }
-  if (value === 'text' || value === 'json') {
-    return value
-  }
-  throw new SeatError(label, `seat.output must be text or json; got ${JSON.stringify(value)}`)
-}
 export function parseSeat(document: Document, source: string): Seat {
   const label = `seat ${source}`
   const { identity, persona, seat } = groupData(document.data, label)
@@ -249,8 +238,7 @@ export function parseSeat(document: Document, source: string): Seat {
       maxTokens,
       tools: asStringList(seat.tools, label, 'seat.tools'),
       maxToolCalls,
-      fallback: parseFallback(seat.fallback, label),
-      output: parseOutput(seat.output, label)
+      fallback: parseFallback(seat.fallback, label)
     },
     body: document.body,
     source

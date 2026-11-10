@@ -165,7 +165,6 @@ describe('verdictInstruction', () => {
 id: guard
 role: 审核
 seat:
-  output: json
 ---`))
     // Meaning only: who decides. The field shape is the schema's job.
     expect(text).toContain('由程序')
@@ -180,7 +179,6 @@ seat:
 id: guard
 role: 审核
 seat:
-  output: json
   canVeto: true
 ---`))
     // A schema describes the fields; prose that repeats them drifts from it.
@@ -231,7 +229,6 @@ seat:
 id: guard
 role: 审核
 seat:
-  output: json
   canVeto: true
 ---`))
     expect(text).toContain('你有否决权')

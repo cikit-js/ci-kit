@@ -205,6 +205,33 @@ describe('text requests', () => {
     await expect(text({ prompt: 'hi', env, schema })).rejects.toMatchObject({ kind: 'output', rawReply: 'plain reply' })
   })
 
+  it('accepts natural text and allows an optional terminal tool with no speech', async () => {
+    const terminalTool = {
+      name: 'finish_speaking',
+      parameters: { type: 'object' as const, properties: {} }
+    }
+    const options = { prompt: 'hi', env: ENV, terminalTool }
+    const plain = mockFetch(() => chat('hello'))
+    await expect(text(options)).resolves.toMatchObject({ value: 'hello' })
+    expect(plain[0]!.body.tool_choice).toBe('auto')
+    const ended = mockFetch(() => Response.json({
+      choices: [
+        {
+          finish_reason: 'tool_calls',
+          message: {
+            tool_calls: [
+              {
+                function: { name: terminalTool.name, arguments: '{}' }
+              }
+            ]
+          }
+        }
+      ]
+    }))
+    await expect(text(options)).resolves.toMatchObject({ value: '', structured: {} })
+    expect(ended).toHaveLength(1)
+  })
+
   it('executes provider tool calls and sends the result back before the final answer', async () => {
     let calls = 0
     const requests = mockFetch((_request) => {

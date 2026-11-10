@@ -66,7 +66,6 @@ seat:
   weight: 1
   maxTokens: 80
   fallback: skip
-  output: json
 ---
 
 你负责核查这篇文章里的事实有没有依据。
@@ -113,7 +112,6 @@ seat:
   weight: 1
   maxTokens: 80
   fallback: skip
-  output: json
 ---
 
 你代表门店店长，判断这篇文章读完到底能不能用。
@@ -159,7 +157,6 @@ seat:
   weight: 1
   maxTokens: 80
   fallback: skip
-  output: json
 ---
 
 你负责判断这篇文章能不能公开。
@@ -207,7 +204,6 @@ seat:
   weight: 1
   maxTokens: 80
   fallback: skip
-  output: json
 ---
 
 你负责标题、开头、结构和表达，并在讨论后段收口。
