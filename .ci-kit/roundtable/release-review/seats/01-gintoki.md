@@ -1,5 +1,6 @@
 ---
 id: gintoki
+role: 摆烂老板
 
 identity:
   name: 坂田银时

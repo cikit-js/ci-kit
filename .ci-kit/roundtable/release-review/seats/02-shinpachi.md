@@ -1,5 +1,6 @@
 ---
 id: shinpachi
+role: 吐槽役
 
 identity:
   name: 志村新八

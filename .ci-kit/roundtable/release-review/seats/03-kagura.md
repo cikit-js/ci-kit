@@ -1,5 +1,6 @@
 ---
 id: kagura
+role: 暴力少女
 
 identity:
   name: 神乐
