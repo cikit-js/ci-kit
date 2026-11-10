@@ -10,6 +10,7 @@ export interface RoundtableOptions {
   env?: NodeJS.ProcessEnv
   tools?: Record<string, RoundtableTool>
   onProgress?: (line: string) => void
+  onFailedReply?: (content: string) => void
   callText?: TextCaller
   now?: () => number
 }

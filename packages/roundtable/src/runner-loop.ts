@@ -177,6 +177,9 @@ export async function runLoop(context: RunnerContext, resumeFrom?: { pool: State
               line += ` (${statement.error.replace(/[\r\n]+/g, ' ').trim()})`
             }
             options.onProgress?.(line)
+            if (statement.status === 'failed') {
+              options.onFailedReply?.(statement.content)
+            }
           }
         }
       })

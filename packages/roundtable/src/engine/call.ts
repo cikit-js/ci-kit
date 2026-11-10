@@ -160,9 +160,10 @@ export async function callSeat(seat: Seat, prompt: string, context: CallContext)
 
     let structured: unknown
     if (wantJson) {
+      const fenced = /^\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(result.value)
+      const jsonInput = fenced?.[1] ?? result.value
       try {
-        const fenced = /^\s*```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```\s*$/i.exec(result.value)
-        structured = JSON.parse(fenced?.[1] ?? result.value)
+        structured = JSON.parse(jsonInput)
       }
       catch {
         return {

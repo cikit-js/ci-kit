@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
@@ -182,6 +183,21 @@ async function loadPackages(): Promise<Packages> {
   }
 }
 
+function logFailedReply(input: string): void {
+  if (!input) {
+    console.error('（没有收到模型回复）')
+    return
+  }
+  if (process.env.GITHUB_ACTIONS !== 'true') {
+    console.error(input)
+    return
+  }
+  const marker = randomUUID()
+  console.error(`::stop-commands::${marker}`)
+  console.error(input)
+  console.error(`::${marker}::`)
+}
+
 async function writeArtifacts(tag: string, context: string, result: RoundtableResult | undefined, transcript: string, failure: string | undefined): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true })
   const stem = `release-review-${safeTag(tag)}`
@@ -226,7 +242,8 @@ async function main(): Promise<void> {
       context,
       outDir: join(ROOT, 'roundtable-out'),
       env: process.env,
-      onProgress: (line: string) => console.error(line)
+      onProgress: (line: string) => console.error(line),
+      onFailedReply: logFailedReply
     })
     transcript = renderConversation(result.record)
   }
