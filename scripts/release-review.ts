@@ -214,8 +214,7 @@ async function main(): Promise<void> {
     includeMerges: true
   })
   const context = packages.renderReleaseContext(history)
-  const topic = `请围绕 ${previousTag ?? '仓库初始提交'} 到 ${tag} 的真实变化开一场万事屋圆桌`
-  const brief = '这是发布时的圆桌闲聊；只接材料里的变化，每次只说一句短话。'
+  const brief = '这是发布时的自由闲聊，可以锐评代码、风格和改动，每次保持短句。'
 
   let result
   let transcript = ''
@@ -223,7 +222,6 @@ async function main(): Promise<void> {
   try {
     result = await packages.runRoundtable({
       configDir: CONFIG_DIR,
-      topic,
       brief,
       context,
       outDir: join(ROOT, 'roundtable-out'),
