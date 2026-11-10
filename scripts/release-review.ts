@@ -148,7 +148,7 @@ function renderConversation(record: RoundtableResult['record']): string {
   }
   const lines = record.statements.flatMap((statement) => {
     if (statement.status === 'failed') {
-      return [`- ${statement.name} · ${statement.role}：发言失败（${statement.error || '未知错误'}）`]
+      return [`- ${statement.name}：发言失败（${statement.error || '未知错误'}）`]
     }
     if (statement.status !== 'completed' || !statement.content.trim()) {
       return []
@@ -159,7 +159,7 @@ function renderConversation(record: RoundtableResult['record']): string {
       return []
     }
     const finished = parsed.finished || statement.finished === true || statement.structured?.finished === true
-    return [`- ${statement.name} · ${statement.role}：${content}${finished ? ' ✔' : ''}`]
+    return [`- ${statement.name}：${content}${finished ? ' ✔' : ''}`]
   })
   return lines.join('\n\n')
 }
