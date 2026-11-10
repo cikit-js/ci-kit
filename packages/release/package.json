@@ -1,7 +1,7 @@
 {
   "name": "@ci-kit/release",
   "type": "module",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "Semver and release tag helpers",
   "author": "imba97",
   "license": "MIT",
