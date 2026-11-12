@@ -100,6 +100,16 @@ describe('buildUserPrompt', () => {
     expect(prompt).toContain('### 材料 2\n\n素材')
   })
 
+  it('keeps names occasional instead of making every reply a direct address', () => {
+    const prompt = buildUserPrompt({
+      topic: '问题',
+      context: [],
+      visible: []
+    })
+    expect(prompt).toContain('回应别人时默认省略名字')
+    expect(prompt).toContain('不要每句都叫人')
+  })
+
   it('omits optional blocks instead of leaving empty headings', () => {
     const prompt = buildUserPrompt({ topic: '只有议题', context: [], visible: [] })
     expect(prompt).toContain('## 议题\n\n只有议题')
