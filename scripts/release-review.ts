@@ -117,7 +117,7 @@ function renderGeneratedSection(input: {
     '',
     '![万事屋圆桌](https://raw.githubusercontent.com/cikit-js/ci-kit/main/.github/assets/yorozuya-roundtable.png)',
     '',
-    `围绕 ${range} 交谈，共 ${history.commits.length} 个 commit、${history.files.length} 个文件变更。`,
+    `围绕 ${range} 吐槽，共 ${history.commits.length} 个 commit、${history.files.length} 个文件变更。`,
     '',
     '### 圆桌记录',
     '',
@@ -211,7 +211,7 @@ async function main(): Promise<void> {
     includeMerges: true
   })
   const context = packages.renderReleaseContext(history)
-  const brief = '这是发布时的自由闲聊，可以锐评代码、风格和改动，每次保持短句。'
+  const brief = '这不是评审会，目标只有一个：围绕这次 ci-kit 发版的材料吐槽到底。每次保持短句，别给结论、建议清单或行动安排。'
 
   let result
   let transcript = ''
